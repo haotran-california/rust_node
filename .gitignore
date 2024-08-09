@@ -1,0 +1,12 @@
+# Ignore the target directory where Rust builds its outputs
+/target/
+
+# Ignore compiled binaries (these can also be found in target/)
+**/*.rs.bk
+*.exe
+*.dll
+*.dylib
+*.so
+*.a
+*.o
+
