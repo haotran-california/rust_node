@@ -80,11 +80,27 @@ fn main() {
 
     //How to create a function? 
     //Why is a function template needed for this instead of a function?
+    //Function will only create a single instance of console
     let function_template = v8::FunctionTemplate::new(scope, console_log_callback);
-    let console_log = function_template.get_function(scope).unwrap();
-    let key = v8::String::new(scope, "console").unwrap();
-    global.set(scope, key.into(), console_log.into());
+    let log_function = function_template.get_function(scope).unwrap();
 
+    let console = v8::Object::new(scope);
+    let key = v8::String::new(scope, "log").unwrap(); 
+    console.set(scope, key.into(), log_function.into());
+
+    let key = v8::String::new(scope, "console").unwrap();
+    global.set(scope, key.into(), console.into());
+
+    //ALTERNATIVELY
+    // let object_template = v8::ObjectTemplate::new(scope);
+    // let function_template = v8::FunctionTemplate::new(scope, console_log_callback);
+    // let name = v8::String::new(scope, "console").unwrap();
+    // object_template.set(name.into(), function_template.into()); 
+
+    // let context = v8::Context::new_from_template(scope, object_template);
+    // let scope = &mut v8::ContextScope::new(scope, context); 
+
+    //Execute Code
     let code = v8::String::new(scope, &file_contents).unwrap(); 
 
     let script = v8::Script::compile(scope, code, None).unwrap();
