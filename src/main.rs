@@ -2,6 +2,7 @@ use rusty_v8 as v8;
 use std::fs::File; 
 use std::io::prelude::*;
 use std::any::type_name;
+use rusty_v8::MapFnTo;
 
 fn print_type_of<T>(_: &T) {
     println!("Type: {}", type_name::<T>());
@@ -15,6 +16,24 @@ fn read_file(filepath: &str) -> std::io::Result<String> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     Ok(contents)
+}
+
+//How to make a callback function in V8? 
+//Arguements are automatically passed in callback functions, like React
+fn console_log_callback(
+   handle_scope: &mut v8::HandleScope, 
+   args: v8::FunctionCallbackArguments, 
+   mut returnObject: v8::ReturnValue 
+){
+
+    //convert from V8 string local handle to Rust String
+    let inputStr = args
+        .get(0) 
+        .to_string(handle_scope)
+        .unwrap()
+        .to_rust_string_lossy(handle_scope);
+
+    println!("Console log: {}", inputStr);
 }
 
 fn main() {
@@ -33,6 +52,7 @@ fn main() {
     //Handle Scopes contain references to all local handles in a particular isolate 
     let handle_scope = &mut v8::HandleScope::new(isolate);
     let context: v8::Local<v8::Context> = v8::Context::new(handle_scope);
+    let global = context.global(handle_scope);
 
     //RAII
     //Aquires the resources necessary to excute JavaScript code
@@ -42,7 +62,7 @@ fn main() {
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     //Read File
-    let filepath: &str = "src/examples/01.txt"; 
+    let filepath: &str = "src/examples/02.txt"; 
 
     //Rust Notes: 
     //How to handle result types in main? 
@@ -54,25 +74,21 @@ fn main() {
             return; 
         }
     };
-
-    let ptr_file_content = &file_contents;   
     
-    println!("{}", ptr_file_content);
+    println!("File contents: {}", &file_contents);
 
-    let code = v8::String::new(scope, ptr_file_content).unwrap(); 
+
+    //How to create a function? 
+    //Why is a function template needed for this instead of a function?
+    let function_template = v8::FunctionTemplate::new(scope, console_log_callback);
+    let console_log = function_template.get_function(scope).unwrap();
+    let key = v8::String::new(scope, "console").unwrap();
+    global.set(scope, key.into(), console_log.into());
+
+    let code = v8::String::new(scope, &file_contents).unwrap(); 
 
     let script = v8::Script::compile(scope, code, None).unwrap();
     let result = script.run(scope).unwrap();
     let result = result.to_string(scope).unwrap();
-    println!("result: {}", result.to_rust_string_lossy(scope));
-
-    //This doesn't work because or_else() demands a default value
-
-    // let content: String = read_file(filepath).unwrap_or_else(|e| {
-    //     eprintln!("ERROR: file could not be read {}", e);
-    //     return 1; 
-    // });
-
-    //v8::V8::dispose();
-
+    println!("Results: {}", result.to_rust_string_lossy(scope));
 }
