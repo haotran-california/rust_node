@@ -1,40 +1,8 @@
 use rusty_v8 as v8;
-use std::fs::File; 
-use std::io::prelude::*;
-use std::any::type_name;
-use rusty_v8::MapFnTo;
 
-fn print_type_of<T>(_: &T) {
-    println!("Type: {}", type_name::<T>());
-}
-
-//Rust Notes: 
-//std::io::Result<> is the same as Result<, std::io::Error>
-//? either unwraps OK or SOME, or returns error to function 
-fn read_file(filepath: &str) -> std::io::Result<String> {
-    let mut file = File::open(filepath)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    Ok(contents)
-}
-
-//How to make a callback function in V8? 
-//Arguements are automatically passed in callback functions, like React
-fn console_log_callback(
-   handle_scope: &mut v8::HandleScope, 
-   args: v8::FunctionCallbackArguments, 
-   mut returnObject: v8::ReturnValue 
-){
-
-    //convert from V8 string local handle to Rust String
-    let inputStr = args
-        .get(0) 
-        .to_string(handle_scope)
-        .unwrap()
-        .to_rust_string_lossy(handle_scope);
-
-    println!("Console log: {}", inputStr);
-}
+//Declare internal modules 
+mod helper; 
+mod console; 
 
 fn main() {
     //What is a platform? 
@@ -67,7 +35,7 @@ fn main() {
     //Rust Notes: 
     //How to handle result types in main? 
     //1. match, 2. if let, 3. unwrap_or_else
-    let file_contents = match read_file(filepath){
+    let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err(e) => {
             eprintln!("ERROR: {}", e);
@@ -81,7 +49,7 @@ fn main() {
     //How to create a function? 
     //Why is a function template needed for this instead of a function?
     //Function will only create a single instance of console
-    let function_template = v8::FunctionTemplate::new(scope, console_log_callback);
+    let function_template = v8::FunctionTemplate::new(scope, console::console_log_callback);
     let log_function = function_template.get_function(scope).unwrap();
 
     let console = v8::Object::new(scope);
