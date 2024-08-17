@@ -15,5 +15,5 @@ _return_object: v8::ReturnValue
         .unwrap()
         .to_rust_string_lossy(handle_scope);
 
-    println!("Console log: {}", input_str);
+    println!("{}", input_str);
 }

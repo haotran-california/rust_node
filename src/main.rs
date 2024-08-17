@@ -3,6 +3,7 @@ use rusty_v8 as v8;
 //Declare internal modules 
 mod helper; 
 mod console; 
+mod os; 
 
 fn main() {
     //What is a platform? 
@@ -30,7 +31,7 @@ fn main() {
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     //Read File
-    let filepath: &str = "src/examples/02.txt"; 
+    let filepath: &str = "src/examples/03.txt"; 
 
     //Rust Notes: 
     //How to handle result types in main? 
@@ -49,15 +50,24 @@ fn main() {
     //How to create a function? 
     //Why is a function template needed for this instead of a function?
     //Function will only create a single instance of console
-    let function_template = v8::FunctionTemplate::new(scope, console::console_log_callback);
-    let log_function = function_template.get_function(scope).unwrap();
+    let function_template_console = v8::FunctionTemplate::new(scope, console::console_log_callback);
+    let log_function = function_template_console.get_function(scope).unwrap();
+
+    let function_template_os = v8::FunctionTemplate::new(scope, os::home_dir_callback);
+    let home_dir_function = function_template_os.get_function(scope).unwrap();
 
     let console = v8::Object::new(scope);
     let key = v8::String::new(scope, "log").unwrap(); 
     console.set(scope, key.into(), log_function.into());
 
-    let key = v8::String::new(scope, "console").unwrap();
-    global.set(scope, key.into(), console.into());
+    let os = v8::Object::new(scope);
+    let key = v8::String::new(scope, "homedir").unwrap();
+    os.set(scope, key.into(), home_dir_function.into()).unwrap();
+
+    let console_key = v8::String::new(scope, "console").unwrap();
+    let os_key = v8::String::new(scope, "os").unwrap();
+    global.set(scope, console_key.into(), console.into());
+    global.set(scope, os_key.into(), os.into());
 
     //ALTERNATIVELY
     // let object_template = v8::ObjectTemplate::new(scope);

@@ -1,0 +1,2 @@
+let home = os.homedir()
+console.log(home)
