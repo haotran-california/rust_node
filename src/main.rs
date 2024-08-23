@@ -1,13 +1,12 @@
-//V8
 use rusty_v8 as v8;
 
-//Libuv 
-use libuv_sys2::{uv_loop_init, uv_run, uv_loop_close, uv_run_mode_UV_RUN_DEFAULT};
+
 
 //Declare internal modules 
 mod helper; 
 mod console; 
 mod os; 
+mod fs; 
 
 fn main() {
     //INITIALIZE V8
@@ -23,7 +22,7 @@ fn main() {
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     //READ FILE
-    let filepath: &str = "src/examples/03.txt"; 
+    let filepath: &str = "src/examples/04.txt"; 
 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
@@ -32,7 +31,7 @@ fn main() {
             return; 
         }
     };
-    println!("File contents: {}", &file_contents);
+    //println!("FILE CONTENTS: \n{}", &file_contents);
 
     //ADD GLOBAL OBJECTS
     let function_template_console = v8::FunctionTemplate::new(scope, console::console_log_callback);
@@ -54,20 +53,17 @@ fn main() {
     global.set(scope, console_key.into(), console.into());
     global.set(scope, os_key.into(), os.into());
 
-    //EVENT LOOP
-    unsafe {
-        let mut event_loop = std::mem::MaybeUninit::uninit();
-        uv_loop_init(event_loop.as_mut_ptr());
-    
-        //RUN EVENT LOOP
-        uv_run(event_loop.as_mut_ptr(), uv_run_mode_UV_RUN_DEFAULT);
-    
-        //EXECUTE CODE
-        let code = v8::String::new(scope, &file_contents).unwrap(); 
-    
-        let script = v8::Script::compile(scope, code, None).unwrap();
-        let result = script.run(scope).unwrap();
-        let result = result.to_string(scope).unwrap();
-        println!("Results: {}", result.to_rust_string_lossy(scope));
-    }
+    // let fs = fs::NodeFS::new(scope, global); 
+    // fs.setup(handle_scope); 
+
+    // let fs: fs::NodeFS; 
+    // fs.initialize(scope, global); 
+
+    //EXECUTE CODE
+    let code = v8::String::new(scope, &file_contents).unwrap(); 
+
+    let script = v8::Script::compile(scope, code, None).unwrap();
+    let result = script.run(scope).unwrap();
+    let result = result.to_string(scope).unwrap();
+    println!("Results: {}", result.to_rust_string_lossy(scope));
 }
