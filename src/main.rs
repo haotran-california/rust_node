@@ -39,6 +39,7 @@ fn main() {
 
     let key = v8::String::new(scope, "log").unwrap();
     global.set(scope, key.into(), log_function.into());
+    println!("SET: log function");
 
 
 
@@ -49,6 +50,7 @@ fn main() {
     let result = script.run(scope).unwrap();
 
     if result.is_object(){
+        println!("SET: object console");
         let key = v8::String::new(scope, "console").unwrap();
         global.set(scope, key.into(), result.into());
     }
@@ -65,11 +67,10 @@ fn main() {
 
     let code2 = v8::String::new(scope, &file_contents2).unwrap();
     let script2 = v8::Script::compile(scope, code2, None).unwrap();
-    let result2 = script.run(scope).unwrap();
-    if result2.is_string(){
-        println!("String");
-    }
+    let result2 = script2.run(scope).unwrap();
+
     let result2 = result2.to_string(scope).unwrap();
+
     println!("Results: {}", result2.to_rust_string_lossy(scope));
 }
 
