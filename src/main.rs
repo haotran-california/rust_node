@@ -22,7 +22,8 @@ fn main() {
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     //READ FILE
-    let filepath: &str = "src/examples/04.txt"; 
+    //let filepath: &str = "src/examples/04.txt"; 
+    let filepath: &str = "src/console.js";
 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
@@ -31,39 +32,57 @@ fn main() {
             return; 
         }
     };
-    //println!("FILE CONTENTS: \n{}", &file_contents);
 
-    //ADD GLOBAL OBJECTS
+    //ADD: log to global scope 
     let function_template_console = v8::FunctionTemplate::new(scope, console::console_log_callback);
     let log_function = function_template_console.get_function(scope).unwrap();
 
-    let function_template_os = v8::FunctionTemplate::new(scope, os::home_dir_callback);
-    let home_dir_function = function_template_os.get_function(scope).unwrap();
+    let key = v8::String::new(scope, "log").unwrap();
+    global.set(scope, key.into(), log_function.into());
 
-    let console = v8::Object::new(scope);
-    let key = v8::String::new(scope, "log").unwrap(); 
-    console.set(scope, key.into(), log_function.into());
 
-    let os = v8::Object::new(scope);
-    let key = v8::String::new(scope, "homedir").unwrap();
-    os.set(scope, key.into(), home_dir_function.into()).unwrap();
 
-    let console_key = v8::String::new(scope, "console").unwrap();
-    let os_key = v8::String::new(scope, "os").unwrap();
-    global.set(scope, console_key.into(), console.into());
-    global.set(scope, os_key.into(), os.into());
-
-    // let fs = fs::NodeFS::new(scope, global); 
-    // fs.setup(handle_scope); 
-
-    // let fs: fs::NodeFS; 
-    // fs.initialize(scope, global); 
-
-    //EXECUTE CODE
+    //ADD: console to global scope
     let code = v8::String::new(scope, &file_contents).unwrap(); 
 
     let script = v8::Script::compile(scope, code, None).unwrap();
     let result = script.run(scope).unwrap();
-    let result = result.to_string(scope).unwrap();
-    println!("Results: {}", result.to_rust_string_lossy(scope));
+
+    if result.is_object(){
+        let key = v8::String::new(scope, "console").unwrap();
+        global.set(scope, key.into(), result.into());
+    }
+
+    //TEST: console.print() 
+    let filepath2: &str = "src/examples/02.txt"; 
+    let file_contents2 = match helper::read_file(filepath2){
+        Ok(contents) => contents, 
+        Err (e) => {
+            eprintln!("ERROR: {}", e);
+            return; 
+        }
+    };
+
+    let code2 = v8::String::new(scope, &file_contents2).unwrap();
+    let script2 = v8::Script::compile(scope, code2, None).unwrap();
+    let result2 = script.run(scope).unwrap();
+    if result2.is_string(){
+        println!("String");
+    }
+    let result2 = result2.to_string(scope).unwrap();
+    println!("Results: {}", result2.to_rust_string_lossy(scope));
 }
+
+
+// fn initialize_module_loader(module_cache, scope){
+//     //Attach a function template for require() into the global scope 
+
+//     //reqiure(modulePath) -> moduleObject 
+
+//     //
+
+// }
+
+// fn load_module(){
+
+// }

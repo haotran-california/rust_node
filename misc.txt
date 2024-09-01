@@ -1,0 +1,18 @@
+    let function_template_console = v8::FunctionTemplate::new(scope, console::console_log_callback);
+    let log_function = function_template_console.get_function(scope).unwrap();
+
+    let function_template_os = v8::FunctionTemplate::new(scope, os::home_dir_callback);
+    let home_dir_function = function_template_os.get_function(scope).unwrap();
+
+    let console = v8::Object::new(scope);
+    let key = v8::String::new(scope, "log").unwrap(); 
+    console.set(scope, key.into(), log_function.into());
+
+    let os = v8::Object::new(scope);
+    let key = v8::String::new(scope, "homedir").unwrap();
+    os.set(scope, key.into(), home_dir_function.into()).unwrap();
+
+    let console_key = v8::String::new(scope, "console").unwrap();
+    let os_key = v8::String::new(scope, "os").unwrap();
+    global.set(scope, console_key.into(), console.into());
+    global.set(scope, os_key.into(), os.into());

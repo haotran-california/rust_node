@@ -5,7 +5,7 @@ use rusty_v8 as v8;
 pub fn console_log_callback(
 handle_scope: &mut v8::HandleScope, 
 args: v8::FunctionCallbackArguments, 
-_return_object: v8::ReturnValue 
+mut _return_object: v8::ReturnValue 
 ){
 
     //convert from V8 string local handle to Rust String
@@ -16,4 +16,7 @@ _return_object: v8::ReturnValue
         .to_rust_string_lossy(handle_scope);
 
     println!("{}", input_str);
+
+    let return_str = v8::String::new(handle_scope, &input_str).unwrap();
+    _return_object.set(return_str.into());
 }
