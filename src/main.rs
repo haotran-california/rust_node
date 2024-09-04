@@ -1,5 +1,7 @@
 use rusty_v8 as v8;
-
+use std::rc::Rc;
+use std::ffi::c_void; 
+use std::cell::RefCell;
 
 
 //Declare internal modules 
@@ -7,6 +9,26 @@ mod helper;
 mod console; 
 mod os; 
 mod fs; 
+
+struct FS {
+    pub filename: String, 
+    pub filepath: String, 
+    pub mode: String
+}
+
+impl FS {
+    pub fn new(arg1: &str, arg2: &str, arg3: &str) -> Self{
+        Self {
+            filename: arg1.to_string(),
+            filepath: arg2.to_string(), 
+            mode: arg2.to_string(), 
+        }
+    }
+    
+    pub fn display_info(&self) {
+        println!("Filename: {}, Filepath: {}, Mode: {}", self.filename, self.filepath, self.mode);
+    }
+}
 
 fn main() {
     //INITIALIZE V8
@@ -31,39 +53,53 @@ fn main() {
             return; 
         }
     };
-    //println!("FILE CONTENTS: \n{}", &file_contents);
 
-    //ADD GLOBAL OBJECTS
-    let function_template_console = v8::FunctionTemplate::new(scope, console::console_log_callback);
-    let log_function = function_template_console.get_function(scope).unwrap();
+    let base_file_object = FS::new("blob.txt", "./src/example/blob", "read");
 
-    let function_template_os = v8::FunctionTemplate::new(scope, os::home_dir_callback);
-    let home_dir_function = function_template_os.get_function(scope).unwrap();
+    //Rc<RefCell<>>
+    let fs_object = Rc::new(RefCell::new(base_file_object));
+    let fs_object_c_pointer = Rc::as_ptr(&fs_object) as *mut c_void;
+    let external_fs = v8::External::new(scope, fs_object_c_pointer);
 
-    let console = v8::Object::new(scope);
-    let key = v8::String::new(scope, "log").unwrap(); 
-    console.set(scope, key.into(), log_function.into());
+    // Register the function in V8
+    let fn_template = v8::FunctionTemplate::new(scope, get_fs_info_callback);
+    let function = fn_template.get_function(scope).unwrap();
+    fn_template.prototype_template(scope).set_internal_field_count(1);
+    function.set_internal_field(0, external_fs.into());
 
-    let os = v8::Object::new(scope);
-    let key = v8::String::new(scope, "homedir").unwrap();
-    os.set(scope, key.into(), home_dir_function.into()).unwrap();
+    // Attach the function to the global object
+    let global = context.global(scope);
+    let key = v8::String::new(scope, "getFsInfo").unwrap();
+    global.set(scope, key.into(), function.into());
 
-    let console_key = v8::String::new(scope, "console").unwrap();
-    let os_key = v8::String::new(scope, "os").unwrap();
-    global.set(scope, console_key.into(), console.into());
-    global.set(scope, os_key.into(), os.into());
+    // Register the function in V8
+    let js_code = v8::String::new(scope, "getFsInfo();").unwrap();
+    let script = v8::Script::compile(scope, js_code, None).unwrap();
+    script.run(scope).unwrap();
 
-    // let fs = fs::NodeFS::new(scope, global); 
-    // fs.setup(handle_scope); 
-
-    // let fs: fs::NodeFS; 
-    // fs.initialize(scope, global); 
-
-    //EXECUTE CODE
-    let code = v8::String::new(scope, &file_contents).unwrap(); 
-
-    let script = v8::Script::compile(scope, code, None).unwrap();
-    let result = script.run(scope).unwrap();
-    let result = result.to_string(scope).unwrap();
-    println!("Results: {}", result.to_rust_string_lossy(scope));
 }
+
+pub fn get_fs_info_callback(
+    handle_scope: &mut v8::HandleScope, 
+    args: v8::FunctionCallbackArguments, 
+    _return_object: v8::ReturnValue 
+) {
+    // Get the `this` object (the function object) and access the internal field
+    let this = args.this();
+    let external = this.get_internal_field(handle_scope, 0).unwrap();
+    let external = v8::Local::<v8::External>::try_from(external).unwrap();
+
+    let raw_ptr = external.value() as *const RefCell<FS>;
+
+    if raw_ptr.is_null() {
+        eprintln!("Error: raw_ptr is null");
+        return;
+    }
+
+    let fs_object = unsafe { &*raw_ptr };
+    let fs = fs_object.borrow();
+
+    fs.display_info();
+}
+
+
