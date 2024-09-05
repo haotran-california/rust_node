@@ -1,0 +1,4 @@
+require("os");
+require("console"); 
+
+console.log(os.homedir());
