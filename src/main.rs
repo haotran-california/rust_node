@@ -24,7 +24,7 @@ fn main() {
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     //READ FILE
-    let filepath: &str = "src/index.js"; 
+    let filepath: &str = "src/test.js"; 
 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
@@ -35,7 +35,7 @@ fn main() {
     };
     //println!("FILE CONTENTS: \n{}", &file_contents);
 
-//     //ADD GLOBAL OBJECTS
+    //ADD GLOBAL OBJECTS
     let function_template_console = v8::FunctionTemplate::new(scope, console::console_log_callback);
     let log_function = function_template_console.get_function(scope).unwrap();
 
@@ -55,87 +55,47 @@ fn main() {
     global.set(scope, console_key.into(), console.into());
     global.set(scope, os_key.into(), os.into());
 
-    //MODULE LOADER
-    // Create a module cache to avoid loading the same module multiple times
-    let mut module_cache: HashMap<String, v8::Global<v8::Module>> = HashMap::new();
+    //EXECUTE MODULE 
+    let code = v8::String::new(scope, &file_contents).unwrap(); 
 
-    // Load and run the main script (index.js)
-    let main_module = load_and_instantiate_module(scope, "index.js", &mut module_cache);
+    let source_map_url = v8::Local::<v8::Value>::from(v8::undefined(scope)); 
+    let resource_name = v8::String::new(scope, "test.js").unwrap();
+    let origin = v8::ScriptOrigin::new(
+        scope,
+        resource_name.into(),
+        0,     // line_offset
+        0,     // column_offset
+        false, // is_cross_origin
+        0,     // script_id
+        source_map_url, // source_map_url
+        false, // is_opaque
+        false, // is_wasm
+        true,  // is_module
+    );
 
-    //EXECUTE CODE
-    // let code = v8::String::new(scope, &file_contents).unwrap(); 
-
-    // let script = v8::Script::compile(scope, code, None).unwrap();
-    // let result = script.run(scope).unwrap();
-    // let result = result.to_string(scope).unwrap();
-    // println!("Results: {}", result.to_rust_string_lossy(scope));
-}
-
-// Helper function to load the module and instantiate it
-fn load_and_instantiate_module<'s>(
-    scope: &mut v8::ContextScope<'s, v8::HandleScope<'s>>,
-    filename: &str,
-    module_cache: &'s mut HashMap<String, v8::Global<v8::Module>>,
-) -> Option<v8::Local<'s, v8::Module>> {
-
-    // Check if the module is already cached
-    if let Some(cached_module) = module_cache.get(filename) {
-        return Some(v8::Local::new(scope, cached_module));
-    }
-
-    // Load the JavaScript file
-    let code = match load_file(filename) {
-        Ok(code) => code,
-        Err(_) => {
-            eprintln!("Failed to load file: {}", filename);
-            return None;
+    let source = v8::script_compiler::Source::new(code, Some(&origin));
+    let maybe_module = script_compiler::compile_module(scope, source);
+   
+    let module = match maybe_module {
+        Some(m) => m,
+        None => {
+            eprintln!("Failed to compile module");
+            return;
         }
     };
 
-    if code.is_empty() {
-        return None;
+    // Instantiate the module
+    let result = module.instantiate_module(scope, |_, _, _, _| {
+        // No imports to resolve
+        None
+    });
+
+    if result.is_none() {
+        eprintln!("Failed to instantiate module");
+        return;
     }
 
-    // Compile the module
-    let source_code = v8::String::new(scope, &code).unwrap();
-    let script_source = script_compiler::Source::new(source_code, None);
-    let maybe_module = script_compiler::compile_module(scope, &script_source);
-
-    if let Some(module) = maybe_module {
-        // Instantiate the module and resolve imports using `resolve_module_callback`
-        let success = module.instantiate_module(scope, resolve_module_callback);
-        if success {
-            // Cache the module after loading it
-            let global_module = v8::Global::new(scope, module);
-            module_cache.insert(filename.to_string(), global_module);
-            return Some(module);
-        } else {
-            eprintln!("Failed to instantiate module: {}", filename);
-        }
-    } else {
-        eprintln!("Failed to compile module: {}", filename);
-    }
-
-    None
+    // Evaluate the module
+    let result = module.evaluate(scope);
 }
 
-// Callback to resolve imports (this will load the requested module)
-fn resolve_module_callback<'s>(
-    context: v8::Local<'s, v8::Context>,
-    specifier: v8::Local<'s, v8::String>,
-    _referrer: v8::Local<'s, v8::Module>,
-) -> Option<v8::Local<'s, v8::Module>> {
-
-    let module_name = specifier.to_rust_string_lossy(context);
-    let filename = format!("{}.js", module_name);
-
-    // Load and instantiate the module
-    let isolate = context.isolate();  // Access the isolate from the context
-    let module_cache: &mut HashMap<String, v8::Global<v8::Module>> = isolate.get_slot_mut().unwrap();
-    load_and_instantiate_module(context, &filename, module_cache)
-}
-
-// Helper function to load JavaScript code from a file
-fn load_file(filename: &str) -> std::io::Result<String> {
-    fs::read_to_string(filename)
-}
