@@ -14,10 +14,10 @@ class Coin {
   }
   
   // Initialize a few Coin instances
-  const quarter = new Coin(0.25, "dollar", "heads", 1987);
   const dime = new Coin(0.10, "dollar", "tails", 2002);
   const nickel = new Coin(0.05, "dollar", "heads", 1995);
-  
+  export const quarter = new Coin(0.25, "dollar", "heads", 1987);
+
   // Export the initialized coins
-  export { quarter, dime, nickel };
+  //export { quarter, dime, nickel };
   

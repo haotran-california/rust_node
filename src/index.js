@@ -1,5 +1,3 @@
-import "coin_fak.js"
+import "coin.js"
 
 console.log(quarter.value)
-console.log(dime.value)
-console.log(nickel.value)
