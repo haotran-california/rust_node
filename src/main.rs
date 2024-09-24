@@ -11,24 +11,25 @@ use std::fs::read_to_string;
 mod helper; 
 mod console; 
 mod os; 
-mod fs; 
 
 fn main() {
     //INITIALIZE V8
+    v8::V8::set_flags_from_string("--harmony-import-assertions");
     let platform: v8::SharedRef<v8::Platform>  = v8::new_default_platform(0, false).make_shared();
     v8::V8::initialize_platform(platform);
     v8::V8::initialize();
 
-    let isolate = Rc::new(RefCell::new(v8::Isolate::new(Default::default()))); 
-    let mut isolate_borrow = isolate.borrow_mut();
+    let isolate: &mut v8::OwnedIsolate = &mut v8::Isolate::new(Default::default()); 
+    //Isolates have some relationship with imports
+    // .set_host_import_module_dynamically_callback()
 
-    let handle_scope = &mut v8::HandleScope::new(&mut *isolate_borrow);
+    let handle_scope = &mut v8::HandleScope::new(isolate);
     let context: v8::Local<v8::Context> = v8::Context::new(handle_scope);
     let global = context.global(handle_scope);
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     //READ FILE
-    let filepath: &str = "src/index.js"; 
+    let filepath: &str = "src/index.mjs"; 
 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
@@ -62,6 +63,7 @@ fn main() {
     //EXECUTE MODULE 
     let code = v8::String::new(scope, &file_contents).unwrap(); 
 
+    //source map: maps back to the source code from the current transformed code
     let source_map_url = v8::Local::<v8::Value>::from(v8::undefined(scope)); 
     let resource_name = v8::String::new(scope, "index.js").unwrap();
     let origin = v8::ScriptOrigin::new(
@@ -71,8 +73,8 @@ fn main() {
         0,     // column_offset
         false, // is_cross_origin
         0,     // script_id
-        source_map_url, // source_map_url
-        false, // is_opaque
+        source_map_url, // source_map_url = undefined
+        false, // is_opaque, effects whether debugging output can be seen
         false, // is_wasm
         true,  // is_module
     );
@@ -89,15 +91,10 @@ fn main() {
     };
 
     // Instantiate the module
-    let isolate_handle = isolate.clone();
-    // let result = module.instantiate_module(scope,
-    // move |context, specifier, import_assertions, referrer|{
-    //     resolve_module_callback(isolate_handle.clone(), context, specifier, import_assertions, referrer)
-    // });
     let result = module.instantiate_module(scope, resolve_module_callback);
 
     if result.is_none() {
-        eprintln!("Failed to instantiate module");
+        eprintln!("Failed to instantiate module. Module not returned successfully.");
         return;
     }
 
@@ -113,6 +110,7 @@ fn load_and_instantiate_module<'s>(
 ) -> Option<v8::Local<'s, v8::Module>> {
 
     // Load the JavaScript file
+    let filename = "./src/coin.mjs";
     let code = match helper::read_file(filename) {
         Ok(contents) => contents, 
         Err (e) => {
@@ -126,6 +124,9 @@ fn load_and_instantiate_module<'s>(
         return None;
     }
 
+    // println!("COIN.JS");
+    // println!("{}", code);
+
     // Compile the module
     let source_code = v8::String::new(scope, &code).unwrap();
     let source_map_url = v8::Local::<v8::Value>::from(v8::undefined(scope)); 
@@ -136,7 +137,7 @@ fn load_and_instantiate_module<'s>(
         0,     // line_offset
         0,     // column_offset
         false, // is_cross_origin
-        0,     // script_id
+        1,     // script_id
         source_map_url, // source_map_url
         false, // is_opaque
         false, // is_wasm
@@ -148,7 +149,7 @@ fn load_and_instantiate_module<'s>(
 
     if let Some(module) = maybe_module {
         // Instantiate the module and resolve imports using `resolve_module_callback`
-        let success = module.instantiate_module(scope, |_, _, _, _,| {
+        let success = module.instantiate_module(scope, |_, _, _, _| {
             None
         });
         if success.is_some(){
@@ -162,7 +163,8 @@ fn load_and_instantiate_module<'s>(
 
     None
 }
-//Check function signature
+
+//This callback function does not get a handle_scope passed into it due to ABI compatability reasons
 fn resolve_module_callback<'s>(
     context: v8::Local<'s, v8::Context>,
     specifier: v8::Local<'s, v8::String>,
@@ -173,12 +175,23 @@ fn resolve_module_callback<'s>(
     unsafe{
         let scope = &mut v8::CallbackScope::new(context);
         let module_name = specifier.to_rust_string_lossy(scope);
+        //The variablity in filename comes from what type of import statement is used in index.js
         let filename = format!("src/{}", module_name);
-        println!("{}", filename);
+        //println!("Resolver Filename: {}", filename);
 
-        let module = load_and_instantiate_module(scope, &filename).unwrap();
-        return Some(module);
+        let module = load_and_instantiate_module(scope, &filename);
+
+        match module {
+            Some(module) => {
+                println!("Successfully loaded module {} with resolve function", filename);
+                Some(module)
+            }
+
+            None => {
+                println!("Failed to load module {} with resolve function", filename);
+                None
+            }
+        }
     }
 
-    None
 }
