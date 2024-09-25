@@ -13,7 +13,8 @@ class Coin {
     }
   }
   
-  // Initialize a few Coin instances
-  export default quarter = new Coin(0.25, "dollar", "heads", 1987);
+// Initialize a few Coin instances
+let quarter = new Coin(0.25, "dollar", "heads", 1987);
+export default quarter;
 
   

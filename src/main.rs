@@ -61,11 +61,10 @@ fn main() {
     global.set(scope, os_key.into(), os.into());
 
     //EXECUTE MODULE 
-    let code = v8::String::new(scope, &file_contents).unwrap(); 
 
     //source map: maps back to the source code from the current transformed code
     let source_map_url = v8::Local::<v8::Value>::from(v8::undefined(scope)); 
-    let resource_name = v8::String::new(scope, "index.js").unwrap();
+    let resource_name = v8::String::new(scope, "index.mjs").unwrap();
     let origin = v8::ScriptOrigin::new(
         scope,
         resource_name.into(),
@@ -80,6 +79,9 @@ fn main() {
     );
 
     let tc = &mut v8::TryCatch::new(scope);
+
+    //lets try adding console log into the scope of this try catch
+    let code = v8::String::new(tc, &file_contents).unwrap(); 
     let source = v8::script_compiler::Source::new(code, Some(&origin));
     let maybe_module = script_compiler::compile_module(tc, source);
    
@@ -112,13 +114,23 @@ fn main() {
 
     // Evaluate the module
     let result = module.evaluate(tc);
-    if result.is_some(){
-        let r = result.unwrap();
-        let result_str = r.to_string(tc).unwrap();
 
-        println!("RESULT: {}", result_str.to_rust_string_lossy(tc))
+    //Modules return promises by default
+    if let Some(result_value) = result {
+        if result_value.is_promise(){
+            let promise = v8::Local::<v8::Promise>::try_from(result_value).unwrap();
+            if promise.state() == v8::PromiseState::Fulfilled {
+                let promise_result = promise.result(tc);
+                let result_str = promise_result.to_string(tc).unwrap();
+                println!("Promise resolved with: {}", result_str.to_rust_string_lossy(tc));
+            } else if promise.state() == v8::PromiseState::Rejected {
+                let reason = promise.result(tc);
+                let reason_str = reason.to_string(tc).unwrap();
+                eprintln!("Promise rejected with: {}", reason_str.to_rust_string_lossy(tc));
+            }
+        }
     }
-    println!("Done evaluating module");
+
 }
 
 // Helper function to load the module and instantiate it
@@ -148,7 +160,7 @@ fn load_and_instantiate_module<'s>(
     // Compile the module
     let source_code = v8::String::new(scope, &code).unwrap();
     let source_map_url = v8::Local::<v8::Value>::from(v8::undefined(scope)); 
-    let resource_name = v8::String::new(scope, "coin.js").unwrap();
+    let resource_name = v8::String::new(scope, "coin.mjs").unwrap();
     let origin = v8::ScriptOrigin::new(
         scope,
         resource_name.into(),

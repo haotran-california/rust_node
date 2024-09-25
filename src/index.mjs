@@ -1,10 +1,7 @@
-//notes on import statements
-//importing module: import "coin"
-//importing file: import "./coin.js"
+import quarter from "./coin.mjs"
 
-import "./coin.js"
+console.log("You have entered into the main module");
+console.log(quarter.value);
 
-//console.log("You have entered into the main module")
-//console.log(quarter.value)
-let num = 2; 
-num; 
+let msg = "Hello Wordl";
+msg;
