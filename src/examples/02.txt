@@ -1,1 +1,5 @@
-console.log("Hello World")
+//COMPILE TIME ERROR
+let class = "hello world!";
+
+//RUNTIME ERROR
+null();
