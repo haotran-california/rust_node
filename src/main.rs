@@ -79,27 +79,45 @@ fn main() {
         true,  // is_module
     );
 
+    let tc = &mut v8::TryCatch::new(scope);
     let source = v8::script_compiler::Source::new(code, Some(&origin));
-    let maybe_module = script_compiler::compile_module(scope, source);
+    let maybe_module = script_compiler::compile_module(tc, source);
    
     let module = match maybe_module {
         Some(m) => m,
         None => {
-            eprintln!("Failed to compile module");
+            if tc.has_caught(){
+                let exception = tc.exception().unwrap();
+                let exception_str = exception.to_string(tc).unwrap();
+                let msg = exception_str.to_rust_string_lossy(tc);
+                println!("Compile-Time Error: {}", msg);
+            }
             return;
         }
     };
 
     // Instantiate the module
-    let result = module.instantiate_module(scope, resolve_module_callback);
+    let result = module.instantiate_module(tc, resolve_module_callback);
 
     if result.is_none() {
+        if tc.has_caught(){
+            let exception = tc.exception().unwrap();
+            let exception_str = exception.to_string(tc).unwrap();
+            let msg = exception_str.to_rust_string_lossy(tc);
+            println!("Runtime Error: {}", msg);
+        }
         eprintln!("Failed to instantiate module. Module not returned successfully.");
         return;
     }
 
     // Evaluate the module
-    let result = module.evaluate(scope);
+    let result = module.evaluate(tc);
+    if result.is_some(){
+        let r = result.unwrap();
+        let result_str = r.to_string(tc).unwrap();
+
+        println!("RESULT: {}", result_str.to_rust_string_lossy(tc))
+    }
     println!("Done evaluating module");
 }
 

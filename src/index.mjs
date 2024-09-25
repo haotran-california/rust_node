@@ -2,7 +2,9 @@
 //importing module: import "coin"
 //importing file: import "./coin.js"
 
-import {quarter} from "./coin.js"
+import "./coin.js"
 
-console.log("You have entered into the main module")
-console.log(quarter.value)
+//console.log("You have entered into the main module")
+//console.log(quarter.value)
+let num = 2; 
+num; 
