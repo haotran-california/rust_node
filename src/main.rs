@@ -24,9 +24,10 @@ async fn main() {
     let handle_scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(handle_scope);
     let scope = &mut v8::ContextScope::new(handle_scope, context);
+    let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/examples/02.txt"; 
+    let filepath: &str = "src/examples/05.txt"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -43,7 +44,7 @@ async fn main() {
     //CREATE OBJECT AND EXTERNAL
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<v8::Global<v8::Function>>();
     let tx_ref = &tx; 
-    let external = v8::External::new(scope, tx_ref as *const _ as *mut c_void);
+    let external = v8::External::new(scope, tx_ref as *const _ as *mut c_void); //raw pointer -> c pointer
 
     let obj_template = v8::ObjectTemplate::new(scope);
     obj_template.set_internal_field_count(1);
@@ -51,23 +52,64 @@ async fn main() {
     let obj = obj_template.new_instance(scope).unwrap();
     obj.set_internal_field(0, external.into());
 
-    let function_name = v8::String::new(scope, "setTimeout").unwrap();
-    let function_template = v8::FunctionTemplate::new(scope, timer::set_timeout_callback);
-    obj_template.set(function_name.into(), function_template.into());
-    
-    let global = context.global(scope);
     let key = v8::String::new(scope, "timer").unwrap();
     global.set(scope, key.into(), obj.into());
+
+    let function_name = v8::String::new(scope, "setTimeout").unwrap();
+    let function_template = v8::FunctionTemplate::new(scope, timer::set_timeout_callback);
+    let set_timeout_function = function_template.get_function(scope).unwrap();
+    global.set(scope, function_name.into(), set_timeout_function.into()); 
+
+
     
-    println!("Enter Event Loop");
     // Run the event loop within the LocalSet
+    println!("Enter Event Loop");
     let local = tokio::task::LocalSet::new();
+
     local.run_until(async move {
-        // Event loop to process scheduled callbacks and V8 microtasks
+        // Compile and execute the JavaScript code
+        let code = v8::String::new(scope, &file_contents).unwrap();
+        let script = v8::Script::compile(scope, code, None).unwrap();
+        script.run(scope).unwrap();
+    
+        // Enter the event loop
         loop {
             let mut pending = false;
-
+    
+            // 1. Process Tokio tasks (e.g., `setTimeout`)
+            tokio::select! {
+                Some(callback) = rx.recv() => {
+                    // We received a callback from `setTimeout` or another async task
+                    pending = true;
+    
+                    // Enter a new V8 scope to run the callback
+                    // let handle_scope = &mut v8::HandleScope::new(isolate);
+                    // let context = isolate.get_current_context();
+                    // let scope = &mut v8::ContextScope::new(handle_scope, context);
+    
+                    // Run the callback
+                    let callback = callback.open(scope);
+                    let undefined = v8::undefined(scope).into();
+                    callback.call(scope, undefined, &[]).unwrap();
+                }
+    
+                else => {
+                    // No tasks to process, continue
+                }
+            }
+    
+            // 2. Check if there are pending tasks in Tokio
+            if !pending && rx.is_empty() {
+                // No pending tasks, exit the loop
+                break;
+            }
+    
+            // Yield control to allow other Tokio tasks to run
+            tokio::task::yield_now().await;
         }
+    
+        println!("Exiting Event Loop");
+    
     }).await;
 
 }

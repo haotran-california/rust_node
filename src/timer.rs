@@ -11,6 +11,28 @@ pub fn set_timeout_callback(
     args: v8::FunctionCallbackArguments,
     _return_object: v8::ReturnValue
 ) {
+    // Retrieve transmitter from external store
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+
+    let key = v8::String::new(scope, "timer").unwrap();
+    let object = global.get(scope, key.into()).unwrap();
+
+    let object = v8::Local::<v8::Object>::try_from(object).unwrap();
+    let internal_field = object.get_internal_field(scope, 0);
+
+    // Handle the case where the internal field might be None
+    let external = match internal_field {
+        Some(field) => v8::Local::<v8::External>::try_from(field).unwrap(),
+        None => {
+            eprintln!("Error: No internal field set on the object");
+            return;
+        }
+    };
+
+    let raw_ptr = external.value() as *const tokio::sync::mpsc::UnboundedSender<v8::Global<v8::Function>>;
+    let tx = unsafe{ &* raw_ptr};
+
     // Extract arguments and validate them (this would be the JavaScript callback and delay)
     let callback = args.get(0);
     let delay = args.get(1);
@@ -32,7 +54,7 @@ pub fn set_timeout_callback(
 
     // Schedule the callback using Tokio
     tokio::task::spawn_local(async move {
-        sleep(Duration::from_millis(delay_ms as u64)).await;
-        //tx.send(persistent_callback).unwrap(); // Send the callback to the queue to be executed later
+        sleep(Duration::from_millis(delay_ms as u64)).await; //non-blocking
+        tx.send(persistent_callback).unwrap(); // Send the callback to the queue to be executed later
     });
 }

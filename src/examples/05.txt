@@ -1,4 +1,8 @@
-require("os");
-require("console"); 
+function hello(){
+    console.log("hello")
+}
 
-console.log(os.homedir());
+setTimeout(
+    hello,
+    10000
+)
