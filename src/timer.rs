@@ -1,13 +1,15 @@
 //setTimeout(function, miliseconds);
 //setInternal(function, miliseconds);
 
+use std::sync::Arc;
+use tokio::sync::Mutex; // Use async mutex in case of async tasks
 use tokio::time::{sleep, Duration};
 use rusty_v8 as v8;
 
 pub fn set_timeout_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
-    tx: tokio::sync::mpsc::UnboundedSender<v8::Global<v8::Function>>,
+    _return_object: v8::ReturnValue
 ) {
     // Extract arguments and validate them (this would be the JavaScript callback and delay)
     let callback = args.get(0);
@@ -31,6 +33,6 @@ pub fn set_timeout_callback(
     // Schedule the callback using Tokio
     tokio::task::spawn_local(async move {
         sleep(Duration::from_millis(delay_ms as u64)).await;
-        tx.send(persistent_callback).unwrap(); // Send the callback to the queue to be executed later
+        //tx.send(persistent_callback).unwrap(); // Send the callback to the queue to be executed later
     });
 }
