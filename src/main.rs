@@ -60,7 +60,10 @@ async fn main() {
     let set_timeout_function = function_template.get_function(scope).unwrap();
     global.set(scope, function_name.into(), set_timeout_function.into()); 
 
-
+    let function_name = v8::String::new(scope, "setInterval").unwrap();
+    let function_template = v8::FunctionTemplate::new(scope, timer::set_interval_callback);
+    let set_interval_callback = function_template.get_function(scope).unwrap();
+    global.set(scope, function_name.into(), set_interval_callback.into()); 
     
     // Run the event loop within the LocalSet
     println!("Enter Event Loop");
