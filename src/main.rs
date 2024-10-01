@@ -41,7 +41,7 @@ async fn main() {
     let callback = console::console_log_callback; // Your existing console.log implementation
     assign_callback_to_object(scope, console, "console", "log", callback);
 
-    //CREATE OBJECT AND EXTERNAL
+    //EXTERNAL TIMER
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<v8::Global<v8::Function>>();
     let tx_ref = &tx; 
     let external = v8::External::new(scope, tx_ref as *const _ as *mut c_void); //raw pointer -> c pointer
@@ -64,7 +64,26 @@ async fn main() {
     let function_template = v8::FunctionTemplate::new(scope, timer::set_interval_callback);
     let set_interval_callback = function_template.get_function(scope).unwrap();
     global.set(scope, function_name.into(), set_interval_callback.into()); 
+
+    //EXTERNAL FILE I/O
+    let (tx_file, mut rx_file) = tokio::sync::mpsc::unbounded_channel::<(v8::Global<v8::Function>, v8::Global<v8::String>)>();
+    let tx_ref_file = &tx_file; 
+    let external_file = v8::External::new(scope, tx_ref_file as *const _ as *mut c_void); //raw pointer -> c pointer
+
+    let obj_template_file = v8::ObjectTemplate::new(scope);
+    obj_template_file.set_internal_field_count(1);
+
+    let obj_file = obj_template_file.new_instance(scope).unwrap();
+    obj_file.set_internal_field(0, external_file.into());
+
+    let key_file = v8::String::new(scope, "fs").unwrap();
+    global.set(scope, key_file.into(), obj_file.into());
     
+    let function_name = v8::String::new(scope, "readFile").unwrap();
+    let function_template = v8::FunctionTemplate::new(scope, fs::fs_read_file_callback);
+    let set_timeout_function = function_template.get_function(scope).unwrap();
+    global.set(scope, function_name.into(), set_timeout_function.into()); 
+
     // Run the event loop within the LocalSet
     println!("Enter Event Loop");
     let local = tokio::task::LocalSet::new();
@@ -73,34 +92,40 @@ async fn main() {
         // Compile and execute the JavaScript code
         let code = v8::String::new(scope, &file_contents).unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
-        script.run(scope).unwrap();
+        script.run(scope);
     
         // Enter the event loop
         loop {
             let mut pending = false;
-    
-            // 1. Process Tokio tasks (e.g., `setTimeout`)
+
             tokio::select! {
+                // Process Timer Functions 
                 Some(callback) = rx.recv() => {
                     // We received a callback from `setTimeout` or another async task
                     pending = true;
-    
-                    // Enter a new V8 scope to run the callback
-                    // let handle_scope = &mut v8::HandleScope::new(isolate);
-                    // let context = isolate.get_current_context();
-                    // let scope = &mut v8::ContextScope::new(handle_scope, context);
-    
                     // Run the callback
                     let callback = callback.open(scope);
                     let undefined = v8::undefined(scope).into();
                     callback.call(scope, undefined, &[]).unwrap();
                 }
-    
+
+                // Processs Async Read/Write Functions 
+                Some((callback, filename)) = rx_file.recv() => {
+                    pending = true;
+                    // Run the callback with the file content as the argument
+                    // let args = &[result.into()];
+                    // let callback = callback.open(scope);
+                    // let undefined = v8::undefined(scope).into();
+                    // callback.call(scope, undefined, args).unwrap();
+                }
+
                 else => {
                     // No tasks to process, continue
                 }
             }
-    
+
+
+
             // 2. Check if there are pending tasks in Tokio
             if !pending && rx.is_empty() {
                 // No pending tasks, exit the loop
