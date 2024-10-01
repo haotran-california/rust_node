@@ -14,7 +14,6 @@ pub fn fs_read_file_callback(
     let raw_ptr = retrieve_tx_fs(scope).unwrap(); // Retrieve your channel sender for async task communication
     let tx = unsafe { &*raw_ptr };
     
-    print_type_of(tx);
     // Extract the file path from the arguments
     let file_path = args.get(0);
     let callback = args.get(1);

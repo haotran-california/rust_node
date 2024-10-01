@@ -9,6 +9,6 @@ setTimeout(
 
 let filename = "./src/examples/temp_read_file.txt"
 readFile(filename, (err, data) => {
-    if (err) throw err
+    
     console.log(data)
 })

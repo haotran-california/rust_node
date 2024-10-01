@@ -112,11 +112,31 @@ async fn main() {
                 // Processs Async Read/Write Functions 
                 Some((callback, filename)) = rx_file.recv() => {
                     pending = true;
-                    // Run the callback with the file content as the argument
-                    // let args = &[result.into()];
-                    // let callback = callback.open(scope);
-                    // let undefined = v8::undefined(scope).into();
-                    // callback.call(scope, undefined, args).unwrap();
+
+                    let path_str = filename.open(scope).to_rust_string_lossy(scope);
+                    let path = std::path::Path::new(&path_str);
+
+                    match tokio::fs::read(path).await {
+                        Ok(contents) => {
+                            // Convert the file contents to a V8 string
+                            let contents_str = v8::String::new(scope, std::str::from_utf8(&contents).unwrap()).unwrap();
+                            // Call the callback with the file contents
+                            let null_value = v8::null(scope).into(); // No error
+                            let args = &[null_value, contents_str.into()];
+                            let callback = callback.open(scope);
+                            let undefined = v8::undefined(scope).into();
+                            callback.call(scope, undefined, args).unwrap();
+                        }
+                        Err(e) => {
+                            // If there was an error reading the file, pass the error message to the callback
+                            let error_message = v8::String::new(scope, &e.to_string()).unwrap();
+                            let args = &[error_message.into(), v8::undefined(scope).into()];
+                            let callback = callback.open(scope);
+                            let undefined = v8::undefined(scope).into();
+                            callback.call(scope, undefined, args).unwrap();
+                        }
+                    }
+
                 }
 
                 else => {
