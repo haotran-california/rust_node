@@ -5,6 +5,8 @@ use std::io::prelude::*;
 use rusty_v8 as v8;
 use tokio; 
 
+use crate::fs::FsOperation;
+
 //Rust Notes: 
 //std::io::Result<> is the same as Result<, std::io::Error>
 //? either unwraps OK or SOME, or returns error to function 
@@ -53,7 +55,7 @@ pub fn retrieve_tx(
 pub fn retrieve_tx_fs(
     scope: &mut v8::HandleScope,
     ) ->
-    Option<*const tokio::sync::mpsc::UnboundedSender<(v8::Global<v8::Function>, v8::Global<v8::String> )>>
+    Option<*const tokio::sync::mpsc::UnboundedSender<FsOperation>>
     {
         // Retrieve transmitter from external store
         let context = scope.get_current_context();
@@ -73,6 +75,6 @@ pub fn retrieve_tx_fs(
             }
         };
     
-        let raw_ptr = external.value() as *const tokio::sync::mpsc::UnboundedSender<( v8::Global<v8::Function>, v8::Global<v8::String> )>;
+        let raw_ptr = external.value() as *const tokio::sync::mpsc::UnboundedSender<FsOperation>;
         return Some(raw_ptr);
 }

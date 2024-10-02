@@ -12,3 +12,12 @@ readFile(filename, (err, data) => {
     
     console.log(data)
 })
+
+let newFilename = "./src/examples/temp_write_file.txt"
+writeFile(newFilename, 'New file contents', (err) => {
+    if (err) {
+        console.error('Write error:', err);
+    } else {
+        console.log('File written successfully.');
+    }
+});
