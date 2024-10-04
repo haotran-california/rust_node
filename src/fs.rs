@@ -1,20 +1,12 @@
 use rusty_v8 as v8;
 use tokio::fs::read;
 use std::path::Path;
+
+use crate::types::FsOperation;
 use crate::helper::retrieve_tx_fs; 
 use crate::helper::print_type_of;
 
-pub enum FsOperation {
-    ReadFile {
-        callback: v8::Global<v8::Function>,
-        filename: v8::Global<v8::String>,
-    },
-    WriteFile {
-        callback: v8::Global<v8::Function>,
-        filename: v8::Global<v8::String>,
-        contents: v8::Global<v8::String>,
-    },
-}
+
 
 pub fn fs_read_file_callback(
     scope: &mut v8::HandleScope,

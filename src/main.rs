@@ -1,10 +1,8 @@
 use rusty_v8 as v8;
 use tokio; 
+use tokio::sync::mpsc::UnboundedSender;
 use std::ffi::c_void;
 
-use std::sync::Arc;
-use tokio::sync::Mutex; // Use async mutex in case of async tasks
-use tokio::task;
 
 //Declare internal modules 
 mod helper; 
@@ -12,6 +10,7 @@ mod console;
 mod os; 
 mod fs; 
 mod timer; 
+mod types;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -22,7 +21,7 @@ async fn main() {
 
     let isolate = &mut v8::Isolate::new(Default::default()); 
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope); 
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
 
@@ -42,52 +41,64 @@ async fn main() {
     assign_callback_to_object(scope, console, "console", "log", callback);
 
     //EXTERNAL TIMER
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<v8::Global<v8::Function>>();
-    let tx_ref = &tx; 
-    let external = v8::External::new(scope, tx_ref as *const _ as *mut c_void); //raw pointer -> c pointer
+    // let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<timer::TimerOperation>();
+    // let tx_ref = &tx; 
+    // let external = v8::External::new(scope, tx_ref as *const _ as *mut c_void); //raw pointer -> c pointer
 
-    let obj_template = v8::ObjectTemplate::new(scope);
-    obj_template.set_internal_field_count(1);
+    // let obj_template = v8::ObjectTemplate::new(scope);
+    // obj_template.set_internal_field_count(1);
 
-    let obj = obj_template.new_instance(scope).unwrap();
-    obj.set_internal_field(0, external.into());
+    // let obj = obj_template.new_instance(scope).unwrap();
+    // obj.set_internal_field(0, external.into());
 
-    let key = v8::String::new(scope, "timer").unwrap();
-    global.set(scope, key.into(), obj.into());
+    // let key = v8::String::new(scope, "timer").unwrap();
+    // global.set(scope, key.into(), obj.into());
 
-    let function_name = v8::String::new(scope, "setTimeout").unwrap();
-    let function_template = v8::FunctionTemplate::new(scope, timer::set_timeout_callback);
-    let set_timeout_function = function_template.get_function(scope).unwrap();
-    global.set(scope, function_name.into(), set_timeout_function.into()); 
+    // let function_name = v8::String::new(scope, "setTimeout").unwrap();
+    // let function_template = v8::FunctionTemplate::new(scope, timer::set_timeout_callback);
+    // let set_timeout_function = function_template.get_function(scope).unwrap();
+    // global.set(scope, function_name.into(), set_timeout_function.into()); 
 
-    let function_name = v8::String::new(scope, "setInterval").unwrap();
-    let function_template = v8::FunctionTemplate::new(scope, timer::set_interval_callback);
-    let set_interval_callback = function_template.get_function(scope).unwrap();
-    global.set(scope, function_name.into(), set_interval_callback.into()); 
+    // let function_name = v8::String::new(scope, "setInterval").unwrap();
+    // let function_template = v8::FunctionTemplate::new(scope, timer::set_interval_callback);
+    // let set_interval_callback = function_template.get_function(scope).unwrap();
+    // global.set(scope, function_name.into(), set_interval_callback.into()); 
 
-    //EXTERNAL FILE I/O
-    let (tx_file, mut rx_file) = tokio::sync::mpsc::unbounded_channel::<fs::FsOperation>();
-    let tx_ref_file = &tx_file; 
-    let external_file = v8::External::new(scope, tx_ref_file as *const _ as *mut c_void); //raw pointer -> c pointer
+    // //EXTERNAL FILE I/O
+    // let (tx_file, mut rx_file) = tokio::sync::mpsc::unbounded_channel::<fs::FsOperation>();
+    // let tx_ref_file = &tx_file; 
+    // let external_file = v8::External::new(scope, tx_ref_file as *const _ as *mut c_void); //raw pointer -> c pointer
 
-    let obj_template_file = v8::ObjectTemplate::new(scope);
-    obj_template_file.set_internal_field_count(1);
+    // let obj_template_file = v8::ObjectTemplate::new(scope);
+    // obj_template_file.set_internal_field_count(1);
 
-    let obj_file = obj_template_file.new_instance(scope).unwrap();
-    obj_file.set_internal_field(0, external_file.into());
+    // let obj_file = obj_template_file.new_instance(scope).unwrap();
+    // obj_file.set_internal_field(0, external_file.into());
 
-    let key_file = v8::String::new(scope, "fs").unwrap();
-    global.set(scope, key_file.into(), obj_file.into());
+    // let key_file = v8::String::new(scope, "fs").unwrap();
+    // global.set(scope, key_file.into(), obj_file.into());
     
-    let function_name = v8::String::new(scope, "readFile").unwrap();
-    let function_template = v8::FunctionTemplate::new(scope, fs::fs_read_file_callback);
-    let read_file_function = function_template.get_function(scope).unwrap();
-    global.set(scope, function_name.into(), read_file_function.into()); 
+    // let function_name = v8::String::new(scope, "readFile").unwrap();
+    // let function_template = v8::FunctionTemplate::new(scope, fs::fs_read_file_callback);
+    // let read_file_function = function_template.get_function(scope).unwrap();
+    // global.set(scope, function_name.into(), read_file_function.into()); 
 
-    let function_name = v8::String::new(scope, "writeFile").unwrap();
-    let function_template = v8::FunctionTemplate::new(scope, fs::fs_write_file_callback);
-    let set_timeout_function = function_template.get_function(scope).unwrap();
-    global.set(scope, function_name.into(), set_timeout_function.into()); 
+    // let function_name = v8::String::new(scope, "writeFile").unwrap();
+    // let function_template = v8::FunctionTemplate::new(scope, fs::fs_write_file_callback);
+    // let set_timeout_function = function_template.get_function(scope).unwrap();
+    // global.set(scope, function_name.into(), set_timeout_function.into()); 
+
+    //REFACTOR
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<types::Operations>();
+    assign_tx_to_object(scope, tx, "timer");
+
+    //Timer Operations
+    assign_callback_to_global(scope, "setTimeout", timer::set_timeout_callback);
+    assign_callback_to_global(scope, "setInternval", timer::set_interval_callback);
+
+    //File Operations
+    assign_callback_to_global(scope, "readFile", fs::fs_read_file_callback);
+    assign_callback_to_global(scope, "writeFile", fs::fs_write_file_callback);
 
     // Run the event loop within the LocalSet
     println!("Enter Event Loop");
@@ -104,82 +115,84 @@ async fn main() {
             let mut pending = false;
 
             tokio::select! {
-                // Process Timer Functions 
-                Some(callback) = rx.recv() => {
-                    // We received a callback from `setTimeout` or another async task
+                // Receive an operation (either Timer or Fs)
+                Some(operation) = rx.recv() => {
                     pending = true;
-                    // Run the callback
-                    let callback = callback.open(scope);
-                    let undefined = v8::undefined(scope).into();
-                    callback.call(scope, undefined, &[]).unwrap();
-                }
-
-                // Processs Async Read/Write Functions 
-                Some(operation) = rx_file.recv() => {
-                    pending = true;
-
+            
                     match operation {
-                        fs::FsOperation::ReadFile{callback, filename} => {
-
-                            let path_str = filename.open(scope).to_rust_string_lossy(scope);
-                            let path = std::path::Path::new(&path_str);
-                            match tokio::fs::read(path).await {
-                                Ok(contents) => {
-                                    // Convert the file contents to a V8 string
-                                    let contents_str = v8::String::new(scope, std::str::from_utf8(&contents).unwrap()).unwrap();
-                                    // Call the callback with the file contents
-                                    let null_value = v8::null(scope).into(); // No error
-                                    let args = &[null_value, contents_str.into()];
+                        // Handle TimerOperation (from setTimeout or another async task)
+                        types::Operations::Timer(timer_callback) => {
+                            match timer_callback{
+                                types::TimerOperation::Timeout { callback } => {
                                     let callback = callback.open(scope);
                                     let undefined = v8::undefined(scope).into();
-                                    callback.call(scope, undefined, args).unwrap();
+                                    callback.call(scope, undefined, &[]).unwrap();
                                 }
-                                Err(e) => {
-                                    // If there was an error reading the file, pass the error message to the callback
-                                    let error_message = v8::String::new(scope, &e.to_string()).unwrap();
-                                    let args = &[error_message.into(), v8::undefined(scope).into()];
-                                    let callback = callback.open(scope);
-                                    let undefined = v8::undefined(scope).into();
-                                    callback.call(scope, undefined, args).unwrap();
+                            }
+                       }
+            
+                        // Handle FsOperation (ReadFile or WriteFile)
+                        types::Operations::Fs(fs_operation) => {
+                            match fs_operation {
+                                types::FsOperation::ReadFile { callback, filename } => {
+                                    let path_str = filename.open(scope).to_rust_string_lossy(scope);
+                                    let path = std::path::Path::new(&path_str);
+            
+                                    match tokio::fs::read(path).await {
+                                        Ok(contents) => {
+                                            // Convert the file contents to a V8 string
+                                            let contents_str = v8::String::new(scope, std::str::from_utf8(&contents).unwrap()).unwrap();
+                                            // Call the callback with the file contents
+                                            let null_value = v8::null(scope).into(); // No error
+                                            let args = &[null_value, contents_str.into()];
+                                            let callback = callback.open(scope);
+                                            let undefined = v8::undefined(scope).into();
+                                            callback.call(scope, undefined, args).unwrap();
+                                        }
+                                        Err(e) => {
+                                            // If there was an error reading the file, pass the error message to the callback
+                                            let error_message = v8::String::new(scope, &e.to_string()).unwrap();
+                                            let args = &[error_message.into(), v8::undefined(scope).into()];
+                                            let callback = callback.open(scope);
+                                            let undefined = v8::undefined(scope).into();
+                                            callback.call(scope, undefined, args).unwrap();
+                                        }
+                                    }
+                                }
+            
+                                types::FsOperation::WriteFile { callback, filename, contents } => {
+                                    let path_str = filename.open(scope).to_rust_string_lossy(scope);
+                                    let contents_str = contents.open(scope).to_rust_string_lossy(scope);
+                                    let path = std::path::Path::new(&path_str);
+                                    let undefined_value = v8::undefined(scope).into();
+            
+                                    match tokio::fs::write(path, contents_str).await {
+                                        Ok(_) => {
+                                            // Success: Call the callback with null (no error) and undefined
+                                            let null_value = v8::null(scope).into();
+                                            let args = &[null_value, undefined_value];
+                                            let callback = callback.open(scope);
+                                            callback.call(scope, undefined_value, args).unwrap();
+                                        }
+                                        Err(e) => {
+                                            // Error: Call the callback with the error message
+                                            let error_message = v8::String::new(scope, &e.to_string()).unwrap();
+                                            let args = &[error_message.into(), v8::undefined(scope).into()];
+                                            let callback = callback.open(scope);
+                                            callback.call(scope, undefined_value, args).unwrap();
+                                        }
+                                    }
                                 }
                             }
                         }
-
-
-                        fs::FsOperation::WriteFile { callback, filename, contents } => {
-                            // Placeholder: Handle WriteFile operation
-                            // You can add your file writing logic here, or just log something for now
-                            let path_str = filename.open(scope).to_rust_string_lossy(scope);
-                            let contents_str = contents.open(scope).to_rust_string_lossy(scope);
-                            let path = std::path::Path::new(&path_str);
-                            let undefined_value = v8::undefined(scope).into();
-
-                            match tokio::fs::write(path, contents_str).await {
-                                Ok(_) => {
-                                    // Success: Call the callback with null (no error) and undefined
-                                    let null_value = v8::null(scope).into();
-                                    let args = &[null_value, undefined_value];
-                                    let callback = callback.open(scope);
-                                    callback.call(scope, undefined_value, args).unwrap();
-                                }
-                                Err(e) => {
-                                    // Error: Call the callback with the error message
-                                    let error_message = v8::String::new(scope, &e.to_string()).unwrap();
-                                    let args = &[error_message.into(), v8::undefined(scope).into()];
-                                    let callback = callback.open(scope);
-                                    callback.call(scope, undefined_value, args).unwrap();
-                                }
-                            }
-                        }
-
                     }
                 }
-
+            
                 else => {
                     // No tasks to process, continue
                 }
             }
-
+            
 
 
             // 2. Check if there are pending tasks in Tokio
@@ -215,4 +228,40 @@ pub fn assign_callback_to_object(
     let global = context.global(scope);
     let object_key = v8::String::new(scope, object_name).unwrap();
     global.set(scope, object_key.into(), obj.into());
+}
+
+pub fn assign_callback_to_global(
+    scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>, 
+    callback_name: &str, 
+    callback: impl v8::MapFnTo<v8::FunctionCallback>
+){
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+
+    let function_template = v8::FunctionTemplate::new(scope, callback);
+    let function = function_template.get_function(scope).unwrap();
+    let key = v8::String::new(scope, callback_name).unwrap();
+    global.set(scope, key.into(), function.into());
+
+}
+
+pub fn assign_tx_to_object(
+    scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>, 
+    tx: UnboundedSender<types::Operations>, 
+    object_name: &str
+){
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+
+    let tx_ref = &tx; 
+    let external = v8::External::new(scope, tx_ref as *const _ as *mut c_void); //raw pointer -> c pointer
+
+    let obj_template_file = v8::ObjectTemplate::new(scope);
+    obj_template_file.set_internal_field_count(1);
+
+    let obj = obj_template_file.new_instance(scope).unwrap();
+    obj.set_internal_field(0, external.into());
+
+    let key = v8::String::new(scope, object_name).unwrap();
+    global.set(scope, key.into(), obj.into());
 }

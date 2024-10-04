@@ -1,11 +1,25 @@
-//setTimeout(function, miliseconds);
-//setInternal(function, miliseconds);
-
-use std::sync::Arc;
-use tokio::sync::Mutex; // Use async mutex in case of async tasks
 use tokio::time::{sleep, Duration};
 use rusty_v8 as v8;
+use tokio; 
+
+use crate::types::Operations;
+use crate::types::TimerOperation;
 use crate::helper::retrieve_tx; 
+
+
+// pub struct Timer<'s> {
+//     scope: &'s mut v8::ContextScope<'s, v8::HandleScope<'s>>,
+//     tx: UnboundedSender<TimerOperation> 
+// }
+
+// impl<'s> Timer<'s> {
+//     pub fn new(scope: &'s mut v8::ContextScope<'s, v8::HandleScope<'s>>, tx: UnboundedSender<TimerOperation>) -> Self {
+//         Self {
+//             scope,
+//             tx
+//         }
+//     }
+// }
 
 pub fn set_timeout_callback(
     scope: &mut v8::HandleScope,
@@ -34,10 +48,15 @@ pub fn set_timeout_callback(
         0.0
     };
 
+    let timer_operation = TimerOperation::Timeout { 
+        callback: persistent_callback 
+    }; 
+    let wrap_ops = Operations::Timer(timer_operation);
+
     // Schedule the callback using Tokio
     tokio::task::spawn_local(async move {
         sleep(Duration::from_millis(delay_ms as u64)).await; //non-blocking
-        tx.send(persistent_callback).unwrap(); // Send the callback to the queue to be executed later
+        tx.send(wrap_ops).unwrap(); // Send the callback to the queue to be executed later
     });
 }
 
@@ -68,18 +87,20 @@ pub fn set_interval_callback(
         0.0
     };
 
+    let timer_operation = TimerOperation::Timeout { 
+        callback: persistent_callback 
+    }; 
+    let wrap_ops = Operations::Timer(timer_operation);
+
     // Schedule the callback to be executed repeatedly using Tokio
     tokio::task::spawn_local(async move {
-        loop {
             // Wait for the specified interval
             tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms as u64)).await;
 
             // Send the callback to the queue to be executed later
-            if tx.send(persistent_callback.clone()).is_err() {
+            if tx.send(wrap_ops).is_err() {
                 // If sending fails (e.g., channel closed), break out of the loop
-                break;
             }
-        }
     });
 }
 
