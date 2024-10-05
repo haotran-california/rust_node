@@ -5,6 +5,7 @@ use tokio;
 use crate::types::Operations;
 use crate::types::TimerOperation;
 use crate::helper::retrieve_tx; 
+use crate::helper::print_type_of;
 
 
 // pub struct Timer<'s> {
@@ -26,7 +27,7 @@ pub fn set_timeout_callback(
     args: v8::FunctionCallbackArguments,
     _return_object: v8::ReturnValue
 ) {
-    let raw_ptr = retrieve_tx(scope, "timer").unwrap();
+    let raw_ptr = retrieve_tx(scope).unwrap();
     let tx = unsafe{ &* raw_ptr};
 
     // Extract arguments and validate them (this would be the JavaScript callback and delay)
@@ -56,7 +57,7 @@ pub fn set_timeout_callback(
     // Schedule the callback using Tokio
     tokio::task::spawn_local(async move {
         sleep(Duration::from_millis(delay_ms as u64)).await; //non-blocking
-        tx.send(wrap_ops).unwrap(); // Send the callback to the queue to be executed later
+        tx.send(wrap_ops).unwrap();
     });
 }
 
@@ -65,7 +66,7 @@ pub fn set_interval_callback(
     args: v8::FunctionCallbackArguments,
     _return_object: v8::ReturnValue
 ) {
-    let raw_ptr = retrieve_tx(scope, "timer").unwrap();
+    let raw_ptr = retrieve_tx(scope).unwrap();
     let tx = unsafe { &*raw_ptr };
 
     // Extract arguments and validate them (this would be the JavaScript callback and delay)

@@ -25,8 +25,7 @@ pub fn print_type_of<T>(_: &T) {
 //Needs to be abstracted with an enum return type
 //Perhaps need to be in a class method
 pub fn retrieve_tx(
-    scope: &mut v8::HandleScope,
-    external_object_name: &str
+    scope: &mut v8::HandleScope
 ) ->
     Option<*const tokio::sync::mpsc::UnboundedSender<Operations>>
 {
@@ -34,6 +33,7 @@ pub fn retrieve_tx(
     let context = scope.get_current_context();
     let global = context.global(scope);
 
+    let external_object_name = "channel";
     let key = v8::String::new(scope, external_object_name).unwrap();
     let object = global.get(scope, key.into()).unwrap();
 
@@ -53,29 +53,29 @@ pub fn retrieve_tx(
 }
 
 
-pub fn retrieve_tx_fs(
-    scope: &mut v8::HandleScope,
-    ) ->
-    Option<*const tokio::sync::mpsc::UnboundedSender<FsOperation>>
-    {
-        // Retrieve transmitter from external store
-        let context = scope.get_current_context();
-        let global = context.global(scope);
+// pub fn retrieve_tx_fs(
+//     scope: &mut v8::HandleScope,
+//     ) ->
+//     Option<*const tokio::sync::mpsc::UnboundedSender<FsOperation>>
+//     {
+//         // Retrieve transmitter from external store
+//         let context = scope.get_current_context();
+//         let global = context.global(scope);
     
-        let key = v8::String::new(scope, "fs").unwrap();
-        let object = global.get(scope, key.into()).unwrap();
+//         let key = v8::String::new(scope, "fs").unwrap();
+//         let object = global.get(scope, key.into()).unwrap();
     
-        let object = v8::Local::<v8::Object>::try_from(object).unwrap();
-        let internal_field = object.get_internal_field(scope, 0);
+//         let object = v8::Local::<v8::Object>::try_from(object).unwrap();
+//         let internal_field = object.get_internal_field(scope, 0);
     
-        let external = match internal_field {
-            Some(field) => v8::Local::<v8::External>::try_from(field).unwrap(),
-            None => {
-                eprintln!("Error: No internal field set on the object");
-                return None;
-            }
-        };
+//         let external = match internal_field {
+//             Some(field) => v8::Local::<v8::External>::try_from(field).unwrap(),
+//             None => {
+//                 eprintln!("Error: No internal field set on the object");
+//                 return None;
+//             }
+//         };
     
-        let raw_ptr = external.value() as *const tokio::sync::mpsc::UnboundedSender<FsOperation>;
-        return Some(raw_ptr);
-}
+//         let raw_ptr = external.value() as *const tokio::sync::mpsc::UnboundedSender<FsOperation>;
+//         return Some(raw_ptr);
+// }

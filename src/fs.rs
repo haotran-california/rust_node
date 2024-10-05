@@ -2,8 +2,9 @@ use rusty_v8 as v8;
 use tokio::fs::read;
 use std::path::Path;
 
+use crate::types::Operations;
 use crate::types::FsOperation;
-use crate::helper::retrieve_tx_fs; 
+use crate::helper::retrieve_tx; 
 use crate::helper::print_type_of;
 
 
@@ -14,7 +15,7 @@ pub fn fs_read_file_callback(
     _return_value: v8::ReturnValue,
 ) {
 
-    let raw_ptr = retrieve_tx_fs(scope).unwrap(); // Retrieve your channel sender for async task communication
+    let raw_ptr = retrieve_tx(scope).unwrap(); // Retrieve your channel sender for async task communication
     let tx = unsafe { &*raw_ptr };
     
     // Extract the file path from the arguments
@@ -49,8 +50,10 @@ pub fn fs_read_file_callback(
         filename: persistent_file_name
     };
 
+    let wrap_op = Operations::Fs(read_op);
+
     tokio::task::spawn_local(async move {
-        tx.send(read_op).unwrap();     
+        tx.send(wrap_op).unwrap();     
     });
 
 }
@@ -61,7 +64,7 @@ pub fn fs_write_file_callback(
     _return_value: v8::ReturnValue,
 ) {
 
-    let raw_ptr = retrieve_tx_fs(scope).unwrap(); // Retrieve your channel sender for async task communication
+    let raw_ptr = retrieve_tx(scope).unwrap(); // Retrieve your channel sender for async task communication
     let tx = unsafe { &*raw_ptr };
     
     // Extract the file path from the arguments
@@ -89,8 +92,10 @@ pub fn fs_write_file_callback(
         contents: persistent_file_content 
     };
 
+    let wrap_op = Operations::Fs(write_op);
+
     tokio::task::spawn_local(async move {
-        tx.send(write_op).unwrap();     
+        tx.send(wrap_op).unwrap();     
     });
 
 }
