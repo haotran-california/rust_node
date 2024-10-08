@@ -55,8 +55,10 @@ async fn main() {
     assign_callback_to_global(scope, "readFile", fs::fs_read_file_callback);
     assign_callback_to_global(scope, "writeFile", fs::fs_write_file_callback);
 
+    //HTTP
+    let http = v8::Object::new(scope);
+
     // Run the event loop within the LocalSet
-    println!("Enter Event Loop");
     let local = tokio::task::LocalSet::new();
 
     local.run_until(async move {

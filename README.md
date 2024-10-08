@@ -1,7 +1,25 @@
+# API
 
+### `console.log(arg)`
+### Parameters:
+- `arg` (String|Number) The string to be printed to the console.
 
+### `setTimeout(callback, delay)`
+### `setInterval(callback, delay)`
+### Parameters:
+- `callback` (Function) The function to be executed repeatedly at each interval.
+- `interval` (Number) The time, in milliseconds, between successive executions of the callback.
 
-### Resources  
+### `fs.readFile(path, callback)`
+### `fs.writeFile(path, data, callback)`
+### Parameters:
+- `path` (String): The file path to be read.
+- `data` (String): The content to write to the file.
+- `callback` (Function): A function that will be executed once the file is read. The callback takes two arguments:
+  - `error` (String|Null): If an error occurs, this will contain the error message. Otherwise, it will be `null`.
+  - `data` (String): The content of the file, returned as a string.
+
+# Resources  
 Deno
 - [Deno Internals Book](https://choubey.gitbook.io/internals-of-deno)
 - [Roll your own runtime](https://deno.com/blog/roll-your-own-javascript-runtime) 
