@@ -1,0 +1,5 @@
+const server = createServer((req, res) => {
+  console.log('Received a request!');
+});
+
+//server.listen(3000, '127.0.0.1');

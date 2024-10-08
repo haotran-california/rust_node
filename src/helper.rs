@@ -25,7 +25,8 @@ pub fn print_type_of<T>(_: &T) {
 //Needs to be abstracted with an enum return type
 //Perhaps need to be in a class method
 pub fn retrieve_tx(
-    scope: &mut v8::HandleScope
+    scope: &mut v8::HandleScope, 
+    channel_name: &str
 ) ->
     Option<*const tokio::sync::mpsc::UnboundedSender<Operations>>
 {
@@ -33,8 +34,7 @@ pub fn retrieve_tx(
     let context = scope.get_current_context();
     let global = context.global(scope);
 
-    let external_object_name = "channel";
-    let key = v8::String::new(scope, external_object_name).unwrap();
+    let key = v8::String::new(scope, channel_name).unwrap();
     let object = global.get(scope, key.into()).unwrap();
 
     let object = v8::Local::<v8::Object>::try_from(object).unwrap();

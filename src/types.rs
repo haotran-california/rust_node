@@ -1,8 +1,10 @@
 use rusty_v8 as v8; 
+use tokio;
 
 pub enum Operations {
     Timer(TimerOperation),
     Fs(FsOperation),
+    Http(HttpOperation)
 }
 
 pub enum TimerOperation {
@@ -21,4 +23,8 @@ pub enum FsOperation {
         filename: v8::Global<v8::String>,
         contents: v8::Global<v8::String>,
     },
+}
+
+pub enum HttpOperation {
+    Listen(tokio::net::TcpStream)
 }

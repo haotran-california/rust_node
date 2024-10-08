@@ -14,6 +14,7 @@ mod os;
 mod fs; 
 mod timer; 
 mod types;
+mod http;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -29,7 +30,7 @@ async fn main() {
     let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/examples/05.txt"; 
+    let filepath: &str = "src/examples/06.txt"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -45,7 +46,12 @@ async fn main() {
 
     //REFACTOR
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<types::Operations>();
-    assign_tx_to_global(scope, &tx);
+    assign_tx_to_global(scope, &tx, "channel");
+
+    let (tx_http, mut rx_http) = tokio::sync::mpsc::unbounded_channel::<types::Operations>();
+    assign_tx_to_global(scope, &tx_http, "http");
+
+    assign_callback_to_global(scope, "createServer", http::create_server_callback);
 
     //Timer Operations
     assign_callback_to_global(scope, "setTimeout", timer::set_timeout_callback);
@@ -55,13 +61,28 @@ async fn main() {
     assign_callback_to_global(scope, "readFile", fs::fs_read_file_callback);
     assign_callback_to_global(scope, "writeFile", fs::fs_write_file_callback);
 
-    //HTTP
-    let http = v8::Object::new(scope);
-
     // Run the event loop within the LocalSet
     let local = tokio::task::LocalSet::new();
 
     local.run_until(async move {
+
+        // //LOAD HTTP MODULE
+        // let module_filepath: &str = "src/http.js"; 
+        // let module_file_contents = match helper::read_file(module_filepath){
+        //     Ok(contents) => contents, 
+        //     Err (e) => {
+        //         eprintln!("ERROR: {}", e);
+        //         return; 
+        //     }
+        // };
+
+        // let code = v8::String::new(scope, &module_file_contents).unwrap();
+        // let script = v8::Script::compile(scope, code, None).unwrap();
+        // let result = script.run(scope).unwrap();
+
+        // let module_name = v8::String::new(scope, "http").unwrap();
+        // global.set(scope, module_name.into(), result.into());
+
         // Compile and execute the JavaScript code
         let code = v8::String::new(scope, &file_contents).unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
@@ -72,10 +93,33 @@ async fn main() {
             let mut pending = false;
 
             tokio::select! {
+                // Recieve http operations
+                Some(socket) = rx_http.recv() => {
+                    match operation {
+                        types::Operations::Http(socket) => {
+                            println!("Got to the http select");
+                        }
+                    }
+                    // pending = true;
+                    // let mut buf = [0; 1024];
+                    // let n = socket.read(&mut buf).await.unwrap();
+                    // let request_data = String::from_utf8_lossy(&buf[..n]).to_string();
+
+                    // Call the JS callback
+                    // let response = call_js_request_callback(persistent_callback.clone(), request_data);
+
+                    // // Send the response
+                    // let http_response = format!(
+                    //     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                    //     response.len(),
+                    //     response
+                    // );
+                    // socket.write_all(http_response.as_bytes()).await.unwrap();
+                }
+
                 // Receive an operation (either Timer or Fs)
                 Some(operation) = rx.recv() => {
                     pending = true;
-            
                     match operation {
                         // Handle TimerOperation (from setTimeout or another async task)
                         types::Operations::Timer(timer_callback) => {
@@ -204,7 +248,8 @@ pub fn assign_callback_to_global(
 
 pub fn assign_tx_to_global(
     scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>, 
-    tx: &UnboundedSender<types::Operations> 
+    tx: &UnboundedSender<types::Operations>, 
+    channel_name: &str 
 ){
     let context = scope.get_current_context();
     let global = context.global(scope);
@@ -217,6 +262,8 @@ pub fn assign_tx_to_global(
     let obj = obj_template.new_instance(scope).unwrap();
     obj.set_internal_field(0, external.into());
 
-    let key = v8::String::new(scope, "channel").unwrap();
+    let key = v8::String::new(scope, channel_name).unwrap();
     global.set(scope, key.into(), obj.into());
 }
+
+

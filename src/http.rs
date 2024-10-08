@@ -2,6 +2,41 @@ use rusty_v8 as v8;
 use tokio::net::TcpStream;
 use std::io::{Write, Read};
 use std::str;
+use crate::helper::retrieve_tx;
+use crate::types::Operations;
+use crate::types::HttpOperation;
+
+pub fn create_server_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    // Get the JavaScript callback for handling requests
+    let js_callback = args.get(0);
+    let js_callback_function = v8::Local::<v8::Function>::try_from(js_callback).unwrap();
+    let persistent_callback = v8::Global::new(scope, js_callback_function);
+
+    // Create a server object (as a JS object in V8)
+    let obj_template = v8::ObjectTemplate::new(scope);
+
+    // Attach the listen function to this object
+    let listen_fn = v8::FunctionTemplate::new(scope, http_server_listen);  // Assuming listen is already defined
+    let listen_key = v8::String::new(scope, "listen").unwrap();
+    let listen_func = listen_fn.get_function(scope).unwrap();
+    obj_template.set(listen_key.into(), listen_func.into());
+
+    // Store the callback in the server object
+    let server_obj = obj_template.new_instance(scope).unwrap();
+
+    // Open the persistent callback in the current HandleScope before setting it
+    let local_callback = persistent_callback.open(scope);
+
+    let callback_key = v8::String::new(scope, "requestHandler").unwrap();
+    server_obj.set(scope, callback_key.into(), local_callback.into());
+
+    // Return the server object to JavaScript
+    rv.set(server_obj.into());
+}
 
 pub fn http_server_listen(
     scope: &mut v8::HandleScope,
@@ -13,7 +48,7 @@ pub fn http_server_listen(
     if args.length() > 0 && args.get(0).is_number() {
         let port = args.get(0)
         .integer_value(scope)
-        .unwrap() as u16
+        .unwrap() as u16;
     } 
 
     // Extract the host from the second arguement
@@ -23,7 +58,7 @@ pub fn http_server_listen(
         .to_rust_string_lossy(scope)
     }
 
-    let tx_http = retrieve_tx_http(scope).unwrap(); // Assuming this function returns the channel sender
+    let tx_http = retrieve_tx(scope, "http").unwrap(); // Assuming this function returns the channel sender
 
     tokio::task::spawn_local(async move {
         // Bind to the specified host and port
@@ -41,7 +76,8 @@ pub fn http_server_listen(
         loop {
             match listener.accept().await {
                 Ok((socket, _)) => {
-                    if let Err(e) = tx_http.send(socket) {
+                    let http_operation = Operations::Http(HttpOperation::Listen(socket));
+                    if let Err(e) = tx_http.send(http_operation) {
                         eprintln!("Failed to send socket to main event loop: {}", e);
                     }
                 }
@@ -53,20 +89,3 @@ pub fn http_server_listen(
     });
 }
 
-Some(socket) = rx_http.recv() => {
-    pending = true;
-    let mut buf = [0; 1024];
-    let n = socket.read(&mut buf).await.unwrap();
-    let request_data = String::from_utf8_lossy(&buf[..n]).to_string();
-
-    // Call the JS callback
-    let response = call_js_request_callback(persistent_callback.clone(), request_data);
-
-    // Send the response
-    let http_response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
-        response.len(),
-        response
-    );
-    socket.write_all(http_response.as_bytes()).await.unwrap();
-}

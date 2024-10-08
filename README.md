@@ -19,6 +19,9 @@
   - `error` (String|Null): If an error occurs, this will contain the error message. Otherwise, it will be `null`.
   - `data` (String): The content of the file, returned as a string.
 
+### `http.createServer()`
+### `http.request()`
+
 # Resources  
 Deno
 - [Deno Internals Book](https://choubey.gitbook.io/internals-of-deno)

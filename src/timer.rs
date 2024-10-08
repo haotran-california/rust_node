@@ -27,7 +27,7 @@ pub fn set_timeout_callback(
     args: v8::FunctionCallbackArguments,
     _return_object: v8::ReturnValue
 ) {
-    let raw_ptr = retrieve_tx(scope).unwrap();
+    let raw_ptr = retrieve_tx(scope, "channel").unwrap();
     let tx = unsafe{ &* raw_ptr};
 
     // Extract arguments and validate them (this would be the JavaScript callback and delay)
@@ -66,7 +66,7 @@ pub fn set_interval_callback(
     args: v8::FunctionCallbackArguments,
     _return_object: v8::ReturnValue
 ) {
-    let raw_ptr = retrieve_tx(scope).unwrap();
+    let raw_ptr = retrieve_tx(scope, "channel").unwrap();
     let tx = unsafe { &*raw_ptr };
 
     // Extract arguments and validate them (this would be the JavaScript callback and delay)

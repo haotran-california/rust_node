@@ -15,7 +15,7 @@ pub fn fs_read_file_callback(
     _return_value: v8::ReturnValue,
 ) {
 
-    let raw_ptr = retrieve_tx(scope).unwrap(); // Retrieve your channel sender for async task communication
+    let raw_ptr = retrieve_tx(scope, "channel").unwrap(); // Retrieve your channel sender for async task communication
     let tx = unsafe { &*raw_ptr };
     
     // Extract the file path from the arguments
@@ -64,7 +64,7 @@ pub fn fs_write_file_callback(
     _return_value: v8::ReturnValue,
 ) {
 
-    let raw_ptr = retrieve_tx(scope).unwrap(); // Retrieve your channel sender for async task communication
+    let raw_ptr = retrieve_tx(scope, "channel").unwrap(); // Retrieve your channel sender for async task communication
     let tx = unsafe { &*raw_ptr };
     
     // Extract the file path from the arguments
