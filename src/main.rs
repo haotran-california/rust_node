@@ -94,10 +94,19 @@ async fn main() {
 
             tokio::select! {
                 // Recieve http operations
-                Some(socket) = rx_http.recv() => {
+                Some(operation) = rx_http.recv() => {
+                    println!("herel");
                     match operation {
-                        types::Operations::Http(socket) => {
-                            println!("Got to the http select");
+                        types::Operations::Http(http_op) => {
+                            match http_op {
+                                types::HttpOperation::Listen(socket) => {
+                                    println!("Got to the http select");
+                                }
+                            } 
+                        }, 
+
+                        _ => {
+                            println!("Unhandled operation");
                         }
                     }
                     // pending = true;
@@ -184,9 +193,17 @@ async fn main() {
                                         }
                                     }
                                 }
+
+
                             }
                         }
+
+                        //Handle Erronous Case
+                        types::Operations::Http(http_ops) => {
+                            continue;
+                        }
                     }
+
                 }
             
                 else => {
