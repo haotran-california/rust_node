@@ -1,0 +1,69 @@
+use rusty_v8 as v8;
+use std::ffi::c_void;
+
+pub fn create_response_object<'s>(
+    scope: &mut v8::HandleScope<'s>,
+) -> v8::Local<'s, v8::Object> {
+    // Create the Response object template
+    let response_template = v8::ObjectTemplate::new(scope);
+    response_template.set_internal_field_count(1); // Store the Rust Response struct internally
+
+    // Add methods: .statusCode(), .setHeader(), etc.
+    let status_code_fn = v8::FunctionTemplate::new(scope, response_status_code);
+    let set_header_fn = v8::FunctionTemplate::new(scope, response_set_header);
+
+    response_template.set(
+        v8::String::new(scope, "statusCode").unwrap().into(),
+        status_code_fn.get_function(scope).unwrap().into(),
+    );
+    response_template.set(
+        v8::String::new(scope, "setHeader").unwrap().into(),
+        set_header_fn.get_function(scope).unwrap().into(),
+    );
+
+    // Create the JavaScript response object
+    let response_obj = response_template.new_instance(scope).unwrap();
+
+    // Create a Rust Response object and wrap it in External
+    let response = Response::new();
+    let external_response = v8::External::new(scope, &response as *const _ as *mut c_void);
+
+    // Set the Rust Response object as an internal field of the JS object
+    response_obj.set_internal_field(0, external_response.into());
+
+    response_obj
+}
+
+// Helper function to retrieve the Rust Response object from JS object
+fn get_response<'a>(scope: &mut v8::HandleScope<'a>, args: &v8::FunctionCallbackArguments) -> &'a mut Response {
+    let response_obj = args.this();
+    let external_field = response_obj.get_internal_field(scope, 0).unwrap();
+    let external = v8::Local::<v8::External>::try_from(external_field).unwrap();
+    unsafe { &mut *(external.value() as *mut Response) }
+}
+
+// V8 binding for the .statusCode() method
+pub fn response_status_code(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let response = get_response(scope, &args);
+    rv.set(v8::Number::new(scope, response.get_status_code() as f64).into());
+}
+
+// V8 binding for the .setHeader() method
+pub fn response_set_header(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let response = get_response(scope, &args);
+
+    let key = args.get(0).to_rust_string_lossy(scope);
+    let value = args.get(1).to_rust_string_lossy(scope);
+
+    response.set_header(key, value);
+
+    rv.set(v8::undefined(scope).into());
+}

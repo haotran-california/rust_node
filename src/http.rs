@@ -6,6 +6,55 @@ use crate::helper::retrieve_tx;
 use crate::types::Operations;
 use crate::types::HttpOperation;
 
+pub struct Request {
+    pub method: String,                    // HTTP method (e.g., GET, POST)
+    pub url: String,                       // The requested URL
+    pub headers: Vec<(String, String)>,    // List of headers as (key, value) pairs
+    pub body: String,                      // Request body (we'll use String for simplicity)
+}
+
+impl Request {
+    // Example function to parse headers or handle the request further
+    pub fn new(method: String, url: String, headers: Vec<(String, String)>, body: String) -> Self {
+        Request {
+            method,
+            url,
+            headers,
+            body,
+        }
+    }
+
+    pub fn get_header(&self, key: &str) -> Option<&String> {
+        for (header_key, header_value) in &self.headers {
+            if header_key == key {
+                return Some(header_value);
+            }
+        }
+        None
+    }
+}
+
+pub struct Response {
+    pub status_code: u16,                  // HTTP status code (e.g., 200 for OK)
+    pub headers: Vec<(String, String)>,    // List of headers as (key, value) pairs
+    pub body: String,                      // Response body
+}
+
+impl Response {
+    // Example function to create a new response
+    pub fn new(status_code: u16, headers: Vec<(String, String)>, body: String) -> Self {
+        Response {
+            status_code,
+            headers,
+            body,
+        }
+    }
+
+    pub fn add_header(&mut self, key: String, value: String) {
+        self.headers.push((key, value));
+    }
+}
+
 pub fn create_server_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -18,15 +67,16 @@ pub fn create_server_callback(
     // Create a server object (as a JS object in V8)
     let server_obj = v8::Object::new(scope);
 
+    // Store the callback in the server object
+    let callback_key = v8::String::new(scope, "requestHandler").unwrap();
+    server_obj.set(scope, callback_key.into(), js_callback_function.into());
+
     // Attach the listen function to this object
     let listen_fn = v8::FunctionTemplate::new(scope, http_server_listen);  // Assuming listen is already defined
     let listen_key = v8::String::new(scope, "listen").unwrap();
     let listen_func = listen_fn.get_function(scope).unwrap();
     server_obj.set(scope, listen_key.into(), listen_func.into());
 
-    // Store the callback in the server object
-    // let callback_key = v8::String::new(scope, "requestHandler").unwrap();
-    // server_obj.set(scope, callback_key.into(), js_callback_function.into());
 
     // Return the server object to JavaScript
     // Note V8 internall promotes the local handle by moving it onto the Javascript heap so that it remains valid 
@@ -68,7 +118,6 @@ pub fn http_server_listen(
         };
 
         println!("Server is listening on port {}", port);
-
 
         loop {
             match listener.accept().await {

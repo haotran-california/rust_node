@@ -3,6 +3,8 @@ use tokio;
 use tokio::sync::mpsc::UnboundedSender;
 use std::ffi::c_void;
 use tokio::time::{sleep, Duration};
+use tokio::net::TcpStream;
+use tokio::io::AsyncWriteExt;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -15,6 +17,21 @@ mod fs;
 mod timer; 
 mod types;
 mod http;
+
+// Enum for Request
+// pub enum Request {
+//     Method(String),
+//     Url(String),
+//     Headers(Vec<(String, String)>), // List of (key, value) pairs for headers
+//     Body(String),                   // For simplicity, we'll assume body is a String
+// }
+
+// // Enum for Response
+// pub enum Response {
+//     StatusCode(u16),                 // HTTP status code (e.g., 200 for OK)
+//     Headers(Vec<(String, String)>),   // List of (key, value) pairs for headers
+//     Body(String),                     // Response body as a string
+// }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -95,11 +112,25 @@ async fn main() {
             tokio::select! {
                 // Recieve http operations
                 Some(operation) = rx_http.recv() => {
-                    println!("herel");
+                    pending = true;
                     match operation {
                         types::Operations::Http(http_op) => {
                             match http_op {
                                 types::HttpOperation::Listen(socket) => {
+                                    // let mut buf = [0; 1024];
+                                    // let n = socket.read(&mut buf).await.unwrap();
+                                    // let request_data = String::from_utf8_lossy(&buf[..n]).to_string();
+
+                                    // let server_obj = retrieve_global_object(scope, "server").unwrap();
+                                    let res = http::Response {
+                                        status_code: 200,
+                                        headers: vec![("Content-Type".to_string(), "text/plain".to_string()) ],
+                                        body: "Hello from Rust HTTP server!".to_string(),
+                                    };        
+
+                                    send_response(socket, res).await;
+
+                                    // socket.write_all(http_response.as_bytes()).await.unwrap();
                                     println!("Got to the http select");
                                 }
                             } 
@@ -109,21 +140,6 @@ async fn main() {
                             println!("Unhandled operation");
                         }
                     }
-                    // pending = true;
-                    // let mut buf = [0; 1024];
-                    // let n = socket.read(&mut buf).await.unwrap();
-                    // let request_data = String::from_utf8_lossy(&buf[..n]).to_string();
-
-                    // Call the JS callback
-                    // let response = call_js_request_callback(persistent_callback.clone(), request_data);
-
-                    // // Send the response
-                    // let http_response = format!(
-                    //     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
-                    //     response.len(),
-                    //     response
-                    // );
-                    // socket.write_all(http_response.as_bytes()).await.unwrap();
                 }
 
                 // Receive an operation (either Timer or Fs)
@@ -214,10 +230,10 @@ async fn main() {
 
 
             // 2. Check if there are pending tasks in Tokio
-            if !pending && rx.is_empty() {
-                // No pending tasks, exit the loop
-                break;
-            }
+            // if !pending && rx.is_empty() && rx_http.is_empty() {
+            //     // No pending tasks, exit the loop
+            //     break;
+            // }
     
             // Yield control to allow other Tokio tasks to run
             tokio::task::yield_now().await;
@@ -283,4 +299,51 @@ pub fn assign_tx_to_global(
     global.set(scope, key.into(), obj.into());
 }
 
+// pub fn retrieve_global_object<'s>(
+//     scope: &mut v8::ContextScope<'s, v8::HandleScope<'_>>, 
+//     name: &str
+// ) -> Option<v8::Local<'s, v8::Object>> {
+//     // Get the global object
+//     let context = scope.get_current_context();
+//     let global = context.global(scope);
+
+//     // Convert the name (key) to a V8 string
+//     let key = v8::String::new(scope, name).unwrap();
+
+//     // Retrieve the object from the global scope
+//     match global.get(scope, key.into()) {
+//         Some(value) => {
+//             if value.is_object() {
+//                 Some(v8::Local::<v8::Object>::try_from(value).unwrap())
+//             } else {
+//                 None
+//             }
+//         }
+//         None => None,
+//     }
+// }
+
+pub async fn send_response(mut stream: TcpStream, response: http::Response) {
+    // Write the status line
+    let status_line = format!("HTTP/1.1 {} OK\r\n", response.status_code);
+    stream.write_all(status_line.as_bytes()).await.unwrap();
+
+    // Write the headers
+    for (key, value) in response.headers {
+        let header_line = format!("{}: {}\r\n", key, value);
+        stream.write_all(header_line.as_bytes()).await.unwrap();
+    }
+
+    // Write an empty line to separate headers and body
+    stream.write_all(b"\r\n").await.unwrap();
+
+    // Write the body in chunks (like Node.js res.write())
+    stream.write_all(response.body.as_bytes()).await.unwrap();
+
+    // Close the connection (like Node.js res.end())
+    stream.flush().await.unwrap();
+    stream.shutdown().await.unwrap();
+
+    println!("Resposne sent");
+}
 
