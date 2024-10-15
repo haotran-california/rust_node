@@ -2,7 +2,7 @@ use rusty_v8 as v8;
 use tokio; 
 use tokio::sync::mpsc::UnboundedSender;
 use std::ffi::c_void;
-
+use std::collections::HashMap;
 
 //Declare internal modules 
 mod helper; 
@@ -13,7 +13,10 @@ mod interface;
 mod http;
 mod net; 
 
-
+use crate::net::create_request_object;
+use crate::net::create_response_object;
+use crate::net::Request;
+use crate::net::Response; 
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -98,8 +101,47 @@ async fn main() {
                     match operation {
                         interface::Operations::Http(http_op) => {
                             match http_op {
-                                interface::HttpOperation::Listen(socket) => {
-                                    net::handle_http_request(socket);
+                                interface::HttpOperation::Listen(socket, callback) => {
+                                    //net::handle_http_request(socket);
+
+                                    //Supose we have finished parsing Request and Response
+                                    let mut request_headers = HashMap::new();
+                                    request_headers.insert("Host".to_string(), "localhost".to_string());
+                                    request_headers.insert("User-Agent".to_string(), "curl/7.68.0".to_string());
+                                    request_headers.insert("Accept".to_string(), "*/*".to_string());
+                                    
+                                    let request = Request {
+                                        method: "GET".to_string(),
+                                        url: "/home".to_string(),
+                                        headers: request_headers,
+                                        body: "".to_string(), // No body for GET requests in most cases
+                                    };
+                                    
+                                    let mut response_headers = Vec::new();
+                                    response_headers.push(("Content-Type".to_string(), "application/json".to_string()));
+                                    response_headers.push(("Content-Length".to_string(), "27".to_string()));
+                                    
+                                    let response = Response {
+                                        status_code: 200,
+                                        headers: response_headers,
+                                        body: "{\"message\":\"Success\"}".to_string(),
+                                    };
+                                                                        
+                                    let request_obj = create_request_object(scope, request);
+                                    let response_obj = create_response_object(scope, response);
+                                    println!("Breaks After Here");
+
+                                    let request_value: v8::Local<v8::Value> = request_obj.into();
+                                    let response_value: v8::Local<v8::Value> = response_obj.into();
+
+                                    
+                                    // 2. Create V8 arguments (request_obj and response_obj should already be valid V8 objects)
+                                    let args = vec![request_value, response_value];
+                                    
+                                    // 3. Call the callback function with the request and response objects
+                                    let undefined = v8::undefined(scope).into();
+                                    let callback = callback.open(scope);
+                                    callback.call(scope, undefined, &args).unwrap();
                                 }
                             } 
                         }, 

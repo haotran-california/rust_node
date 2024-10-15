@@ -53,45 +53,6 @@ pub fn retrieve_tx(
     return Some(raw_ptr);
 }
 
-pub fn get_request<'a>(
-    scope: &mut v8::HandleScope<'a>,
-    args: &v8::FunctionCallbackArguments<'a>
-) -> &'a mut Request {
-    // Assuming the Request object is stored as an internal field in a V8 Object
-    let this = args.this();  // Get the `this` object from the JavaScript context
-    let internal_field = this.get_internal_field(scope, 0);  // Assuming the Request object is stored in the first internal field
-
-    if let Some(internal_field_value) = internal_field {
-        // Extract the External field
-        let external = v8::Local::<v8::External>::try_from(internal_field_value).unwrap();
-        let request_ptr = external.value() as *mut Request;  // Cast the external pointer to a Rust `Request` type
-        
-        // Return a mutable reference to the Request object
-        unsafe { &mut *request_ptr }
-    } else {
-        panic!("Failed to retrieve Request object from V8 internal field.");
-    }
-}
-
-pub fn get_response<'a>(
-    scope: &mut v8::HandleScope<'a>,
-    args: &v8::FunctionCallbackArguments<'a>
-) -> &'a mut Response {
-    // Assuming the Response object is stored as an internal field in a V8 Object
-    let this = args.this();  // Get the `this` object from the JavaScript context
-    let internal_field = this.get_internal_field(scope, 0);  // Assuming the Response object is stored in the first internal field
-    
-    if let Some(internal_field_value) = internal_field {
-        // Extract the External field
-        let external = v8::Local::<v8::External>::try_from(internal_field_value).unwrap();
-        let response_ptr = external.value() as *mut Response;  // Cast the external pointer to a Rust `Response` type
-        
-        // Return a mutable reference to the Response object
-        unsafe { &mut *response_ptr }
-    } else {
-        panic!("Failed to retrieve Response object from V8 internal field.");
-    }
-}
 // pub fn retrieve_tx_fs(
 //     scope: &mut v8::HandleScope,
 //     ) ->

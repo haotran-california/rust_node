@@ -1,9 +1,19 @@
+use rusty_v8 as v8;
 use std::collections::HashMap;
+use std::ffi::c_void;
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
 
 extern crate httparse;
+
+//Import V8 Callback Functions
+use crate::http::request_method_callback;
+use crate::http::request_url_callback;
+use crate::http::request_headers_callback;
+use crate::http::response_status_code_callback;
+use crate::http::response_set_header_callback;
+
 
 pub struct Request {
     pub method: String,                    // HTTP method (e.g., GET, POST)
@@ -63,6 +73,70 @@ impl Response {
     pub fn get_status_code(&self) -> u16 {
         self.status_code
     }
+}
+
+pub fn create_request_object<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    request: Request, // Pass the Rust Request struct
+) -> v8::Local<'s, v8::Object> {
+    // Create the Request object template
+    let request_template = v8::ObjectTemplate::new(scope);
+    request_template.set_internal_field_count(1); // Store the Rust Request struct internally
+    let request_obj = request_template.new_instance(scope).unwrap();
+
+    // Add methods: .method(), .url(), .headers()
+    let method_fn_template = v8::FunctionTemplate::new(scope, request_method_callback);
+    let url_fn_template = v8::FunctionTemplate::new(scope, request_url_callback);
+    let headers_fn_template = v8::FunctionTemplate::new(scope, request_headers_callback);
+
+    let method_fn = method_fn_template.get_function(scope).unwrap();
+    let url_fn = url_fn_template.get_function(scope).unwrap();
+    let header_fn = headers_fn_template.get_function(scope).unwrap();
+
+    let method_key = v8::String::new(scope, "method").unwrap();
+    let url_key = v8::String::new(scope, "url").unwrap();
+    let header_key = v8::String::new(scope, "headers").unwrap();
+
+    request_obj.set(scope, method_key.into(), method_fn.into());
+    request_obj.set(scope, url_key.into(), url_fn.into());
+    request_obj.set(scope, header_key.into(), header_fn.into());
+
+    let external_request = v8::External::new(scope, &request as *const _ as *mut c_void);
+
+    // Set the Rust Request object as an internal field of the JS object
+    request_obj.set_internal_field(0, external_request.into());
+
+    request_obj
+}
+
+pub fn create_response_object<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    response: Response, // Pass the Rust Response struct
+) -> v8::Local<'s, v8::Object> {
+    // Create the Response object template
+    let response_template = v8::ObjectTemplate::new(scope);
+    response_template.set_internal_field_count(1); // Store the Rust Response struct internally
+    let response_obj = response_template.new_instance(scope).unwrap();
+
+    let status_code_fn_template = v8::FunctionTemplate::new(scope, response_status_code_callback);
+    let set_header_fn_template = v8::FunctionTemplate::new(scope, response_set_header_callback);
+
+    let status_fn = status_code_fn_template.get_function(scope).unwrap();
+    let set_header_fn = status_code_fn_template.get_function(scope).unwrap();
+
+    let status_key = v8::String::new(scope, "statusCode").unwrap();
+    let set_header_key= v8::String::new(scope, "setHeader").unwrap();
+
+    response_obj.set(scope, status_key.into(), status_fn.into());
+    response_obj.set(scope, set_header_key.into(), set_header_fn.into());
+
+    // Create a Rust Response object and wrap it in External
+    let external_response = v8::External::new(scope, &response as *const _ as *mut c_void);
+
+    // Set the Rust Response object as an internal field of the JS object
+    response_obj.set_internal_field(0, external_response.into());
+
+    response_obj
 }
 
 pub async fn send_response(mut stream: TcpStream, response: Response) {

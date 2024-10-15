@@ -1,7 +1,5 @@
 use rusty_v8 as v8;
 use crate::helper::retrieve_tx;
-use crate::helper::get_request; 
-use crate::helper::get_response;
 use crate::interface::Operations;
 use crate::interface::HttpOperation;
 use crate::net::Request; 
@@ -40,6 +38,15 @@ pub fn http_server_listen_callback(
     args: v8::FunctionCallbackArguments,
     _return_value: v8::ReturnValue,
 ) {
+    // Extract the server object 
+    let server_obj = args.this();
+
+    // Get the 'requestHandler' function from the server object
+    let callback_key = v8::String::new(scope, "requestHandler").unwrap();
+    let callback_value = server_obj.get(scope, callback_key.into()).unwrap();
+    let js_callback = v8::Local::<v8::Function>::try_from(callback_value).unwrap();
+    let js_callback_global = v8::Global::new(scope, js_callback);
+
     // Extract the port number from the first argument
     let mut port = 8000;
     if args.length() > 0 && args.get(0).is_number() {
@@ -73,8 +80,9 @@ pub fn http_server_listen_callback(
         loop {
             match listener.accept().await {
                 Ok((socket, _)) => {
-                    let http_operation = Operations::Http(HttpOperation::Listen(socket));
-                    if let Err(e) = tx.send(http_operation) {
+                    let js_callback_global_clone = js_callback_global.clone();
+                    let http_operation = Operations::Http(HttpOperation::Listen(socket, js_callback_global_clone));
+                    if let Err(e) = tx.send(http_operation ) {
                         eprintln!("Failed to send socket to main event loop: {}", e);
                     }
                 }
@@ -86,14 +94,25 @@ pub fn http_server_listen_callback(
     });
 }
 
-//Request Methods 
+// Request Methods 
 pub fn request_method_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
-) {
-    let request = get_request(scope, &args); // Retrieve the Request object
-    let method = request.get_method(); // Get the method from the Request object
+){
+    // Retrieve the JS object (the "this" object in JavaScript)
+    let js_request_obj = args.this();
+
+    // Get the internal field (the Rust Request struct)
+    let internal_field = js_request_obj.get_internal_field(scope, 0).unwrap();
+    let external_request = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Cast the external pointer back to the Rust Request object
+    let request = unsafe { &*(external_request.value() as *mut Request) };
+
+    // Now you can access the Request's method
+    let method = request.get_method();
+    println!("Rust end method {}", method);
     rv.set(v8::String::new(scope, method.as_str()).unwrap().into());
 }
 
@@ -101,21 +120,42 @@ pub fn request_url_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
-) {
-    let request = get_request(scope, &args); // Retrieve the Request object
-    let url = request.get_url(); // Get the URL from the Request object
+){
+    // Retrieve the JS object (the "this" object in JavaScript)
+    let js_request_obj = args.this();
+
+    // Get the internal field (the Rust Request struct)
+    let internal_field = js_request_obj.get_internal_field(scope, 0).unwrap();
+    let external_request = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Cast the external pointer back to the Rust Request object
+    let request = unsafe { &*(external_request.value() as *mut Request) };
+
+    // Now you can access the Request's URL
+    let url = request.get_url();
+    println!("Rust end url {}", url);
     rv.set(v8::String::new(scope, url.as_str()).unwrap().into());
 }
 
-pub fn request_headers(
+pub fn request_headers_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
-) {
-    let request = get_request(scope, &args); // Retrieve the Request object
-    let headers = &request.headers; // Get the headers from the Request object
-    
-    // Create a new JavaScript object
+){
+    // Retrieve the JS object (the "this" object in JavaScript)
+    let js_request_obj = args.this();
+
+    // Get the internal field (the Rust Request struct)
+    let internal_field = js_request_obj.get_internal_field(scope, 0).unwrap();
+    let external_request = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Cast the external pointer back to the Rust Request object
+    let request = unsafe { &*(external_request.value() as *mut Request) };
+
+    // Now you can access the headers
+    let headers = &request.headers;
+
+    // Create a new JavaScript object for headers
     let js_headers = v8::Object::new(scope);
 
     // Iterate over the headers HashMap and insert them into the JavaScript object
@@ -129,23 +169,42 @@ pub fn request_headers(
     rv.set(js_headers.into());
 }
 
-//Response Methods
+// Response Methods
 pub fn response_status_code_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
-) {
-    let response = get_response(scope, &args);
-    rv.set(v8::Number::new(scope, response.get_status_code() as f64).into());
+){
+    // Retrieve the JS object (the "this" object in JavaScript)
+    let js_response_obj = args.this();
+
+    // Get the internal field (the Rust Response struct)
+    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
+    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Cast the external pointer back to the Rust Response object
+    let response = unsafe { &*(external_response.value() as *mut Response) };
+
+    // Now you can access the Response's status code
+    rv.set(v8::Number::new(scope, response.status_code as f64).into());
 }
 
 pub fn response_set_header_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
-) {
-    let response = get_response(scope, &args);
+){
+    // Retrieve the JS object (the "this" object in JavaScript)
+    let js_response_obj = args.this();
 
+    // Get the internal field (the Rust Response struct)
+    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
+    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Cast the external pointer back to the Rust Response object
+    let response = unsafe { &mut *(external_response.value() as *mut Response) };
+
+    // Set a header in the Rust Response object
     let key = args.get(0).to_rust_string_lossy(scope);
     let value = args.get(1).to_rust_string_lossy(scope);
 
@@ -153,4 +212,3 @@ pub fn response_set_header_callback(
 
     rv.set(v8::undefined(scope).into());
 }
-
