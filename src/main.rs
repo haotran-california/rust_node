@@ -2,36 +2,18 @@ use rusty_v8 as v8;
 use tokio; 
 use tokio::sync::mpsc::UnboundedSender;
 use std::ffi::c_void;
-use tokio::time::{sleep, Duration};
-use tokio::net::TcpStream;
-use tokio::io::AsyncWriteExt;
 
-use std::cell::RefCell;
-use std::rc::Rc;
 
 //Declare internal modules 
 mod helper; 
 mod console; 
-mod os; 
 mod fs; 
 mod timer; 
-mod types;
+mod interface;
 mod http;
+mod net; 
 
-// Enum for Request
-// pub enum Request {
-//     Method(String),
-//     Url(String),
-//     Headers(Vec<(String, String)>), // List of (key, value) pairs for headers
-//     Body(String),                   // For simplicity, we'll assume body is a String
-// }
 
-// // Enum for Response
-// pub enum Response {
-//     StatusCode(u16),                 // HTTP status code (e.g., 200 for OK)
-//     Headers(Vec<(String, String)>),   // List of (key, value) pairs for headers
-//     Body(String),                     // Response body as a string
-// }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -62,10 +44,10 @@ async fn main() {
     assign_callback_to_object(scope, console, "console", "log", callback);
 
     //REFACTOR
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<types::Operations>();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<interface::Operations>();
     assign_tx_to_global(scope, &tx, "channel");
 
-    let (tx_http, mut rx_http) = tokio::sync::mpsc::unbounded_channel::<types::Operations>();
+    let (tx_http, mut rx_http) = tokio::sync::mpsc::unbounded_channel::<interface::Operations>();
     assign_tx_to_global(scope, &tx_http, "http");
 
     assign_callback_to_global(scope, "createServer", http::create_server_callback);
@@ -114,24 +96,10 @@ async fn main() {
                 Some(operation) = rx_http.recv() => {
                     pending = true;
                     match operation {
-                        types::Operations::Http(http_op) => {
+                        interface::Operations::Http(http_op) => {
                             match http_op {
-                                types::HttpOperation::Listen(socket) => {
-                                    // let mut buf = [0; 1024];
-                                    // let n = socket.read(&mut buf).await.unwrap();
-                                    // let request_data = String::from_utf8_lossy(&buf[..n]).to_string();
-
-                                    // let server_obj = retrieve_global_object(scope, "server").unwrap();
-                                    let res = http::Response {
-                                        status_code: 200,
-                                        headers: vec![("Content-Type".to_string(), "text/plain".to_string()) ],
-                                        body: "Hello from Rust HTTP server!".to_string(),
-                                    };        
-
-                                    send_response(socket, res).await;
-
-                                    // socket.write_all(http_response.as_bytes()).await.unwrap();
-                                    println!("Got to the http select");
+                                interface::HttpOperation::Listen(socket) => {
+                                    net::handle_http_request(socket);
                                 }
                             } 
                         }, 
@@ -147,9 +115,9 @@ async fn main() {
                     pending = true;
                     match operation {
                         // Handle TimerOperation (from setTimeout or another async task)
-                        types::Operations::Timer(timer_callback) => {
+                        interface::Operations::Timer(timer_callback) => {
                             match timer_callback{
-                                types::TimerOperation::Timeout { callback } => {
+                                interface::TimerOperation::Timeout { callback } => {
                                     let callback = callback.open(scope);
                                     let undefined = v8::undefined(scope).into();
                                     callback.call(scope, undefined, &[]).unwrap();
@@ -158,9 +126,9 @@ async fn main() {
                        }
             
                         // Handle FsOperation (ReadFile or WriteFile)
-                        types::Operations::Fs(fs_operation) => {
+                        interface::Operations::Fs(fs_operation) => {
                             match fs_operation {
-                                types::FsOperation::ReadFile { callback, filename } => {
+                                interface::FsOperation::ReadFile { callback, filename } => {
                                     let path_str = filename.open(scope).to_rust_string_lossy(scope);
                                     let path = std::path::Path::new(&path_str);
             
@@ -186,7 +154,7 @@ async fn main() {
                                     }
                                 }
             
-                                types::FsOperation::WriteFile { callback, filename, contents } => {
+                                interface::FsOperation::WriteFile { callback, filename, contents } => {
                                     let path_str = filename.open(scope).to_rust_string_lossy(scope);
                                     let contents_str = contents.open(scope).to_rust_string_lossy(scope);
                                     let path = std::path::Path::new(&path_str);
@@ -215,7 +183,7 @@ async fn main() {
                         }
 
                         //Handle Erronous Case
-                        types::Operations::Http(http_ops) => {
+                        interface::Operations::Http(http_ops) => {
                             continue;
                         }
                     }
@@ -281,7 +249,7 @@ pub fn assign_callback_to_global(
 
 pub fn assign_tx_to_global(
     scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>, 
-    tx: &UnboundedSender<types::Operations>, 
+    tx: &UnboundedSender<interface::Operations>, 
     channel_name: &str 
 ){
     let context = scope.get_current_context();
@@ -323,27 +291,5 @@ pub fn assign_tx_to_global(
 //     }
 // }
 
-pub async fn send_response(mut stream: TcpStream, response: http::Response) {
-    // Write the status line
-    let status_line = format!("HTTP/1.1 {} OK\r\n", response.status_code);
-    stream.write_all(status_line.as_bytes()).await.unwrap();
 
-    // Write the headers
-    for (key, value) in response.headers {
-        let header_line = format!("{}: {}\r\n", key, value);
-        stream.write_all(header_line.as_bytes()).await.unwrap();
-    }
-
-    // Write an empty line to separate headers and body
-    stream.write_all(b"\r\n").await.unwrap();
-
-    // Write the body in chunks (like Node.js res.write())
-    stream.write_all(response.body.as_bytes()).await.unwrap();
-
-    // Close the connection (like Node.js res.end())
-    stream.flush().await.unwrap();
-    stream.shutdown().await.unwrap();
-
-    println!("Resposne sent");
-}
 

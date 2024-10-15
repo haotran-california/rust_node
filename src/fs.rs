@@ -1,11 +1,9 @@
 use rusty_v8 as v8;
-use tokio::fs::read;
 use std::path::Path;
 
-use crate::types::Operations;
-use crate::types::FsOperation;
+use crate::interface::Operations;
+use crate::interface::FsOperation;
 use crate::helper::retrieve_tx; 
-use crate::helper::print_type_of;
 
 
 

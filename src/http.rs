@@ -1,59 +1,11 @@
 use rusty_v8 as v8;
-use tokio::net::TcpStream;
-use std::io::{Write, Read};
-use std::str;
 use crate::helper::retrieve_tx;
-use crate::types::Operations;
-use crate::types::HttpOperation;
-
-pub struct Request {
-    pub method: String,                    // HTTP method (e.g., GET, POST)
-    pub url: String,                       // The requested URL
-    pub headers: Vec<(String, String)>,    // List of headers as (key, value) pairs
-    pub body: String,                      // Request body (we'll use String for simplicity)
-}
-
-impl Request {
-    // Example function to parse headers or handle the request further
-    pub fn new(method: String, url: String, headers: Vec<(String, String)>, body: String) -> Self {
-        Request {
-            method,
-            url,
-            headers,
-            body,
-        }
-    }
-
-    pub fn get_header(&self, key: &str) -> Option<&String> {
-        for (header_key, header_value) in &self.headers {
-            if header_key == key {
-                return Some(header_value);
-            }
-        }
-        None
-    }
-}
-
-pub struct Response {
-    pub status_code: u16,                  // HTTP status code (e.g., 200 for OK)
-    pub headers: Vec<(String, String)>,    // List of headers as (key, value) pairs
-    pub body: String,                      // Response body
-}
-
-impl Response {
-    // Example function to create a new response
-    pub fn new(status_code: u16, headers: Vec<(String, String)>, body: String) -> Self {
-        Response {
-            status_code,
-            headers,
-            body,
-        }
-    }
-
-    pub fn add_header(&mut self, key: String, value: String) {
-        self.headers.push((key, value));
-    }
-}
+use crate::helper::get_request; 
+use crate::helper::get_response;
+use crate::interface::Operations;
+use crate::interface::HttpOperation;
+use crate::net::Request; 
+use crate::net::Response;
 
 pub fn create_server_callback(
     scope: &mut v8::HandleScope,
@@ -72,7 +24,7 @@ pub fn create_server_callback(
     server_obj.set(scope, callback_key.into(), js_callback_function.into());
 
     // Attach the listen function to this object
-    let listen_fn = v8::FunctionTemplate::new(scope, http_server_listen);  // Assuming listen is already defined
+    let listen_fn = v8::FunctionTemplate::new(scope, http_server_listen_callback);  // Assuming listen is already defined
     let listen_key = v8::String::new(scope, "listen").unwrap();
     let listen_func = listen_fn.get_function(scope).unwrap();
     server_obj.set(scope, listen_key.into(), listen_func.into());
@@ -83,7 +35,7 @@ pub fn create_server_callback(
     rv.set(server_obj.into());
 }
 
-pub fn http_server_listen(
+pub fn http_server_listen_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     _return_value: v8::ReturnValue,
@@ -117,7 +69,6 @@ pub fn http_server_listen(
             }
         };
 
-        println!("Server is listening on port {}", port);
 
         loop {
             match listener.accept().await {
@@ -133,5 +84,73 @@ pub fn http_server_listen(
             }
         }
     });
+}
+
+//Request Methods 
+pub fn request_method_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let request = get_request(scope, &args); // Retrieve the Request object
+    let method = request.get_method(); // Get the method from the Request object
+    rv.set(v8::String::new(scope, method.as_str()).unwrap().into());
+}
+
+pub fn request_url_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let request = get_request(scope, &args); // Retrieve the Request object
+    let url = request.get_url(); // Get the URL from the Request object
+    rv.set(v8::String::new(scope, url.as_str()).unwrap().into());
+}
+
+pub fn request_headers(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let request = get_request(scope, &args); // Retrieve the Request object
+    let headers = &request.headers; // Get the headers from the Request object
+    
+    // Create a new JavaScript object
+    let js_headers = v8::Object::new(scope);
+
+    // Iterate over the headers HashMap and insert them into the JavaScript object
+    for (key, value) in headers {
+        let js_key = v8::String::new(scope, key.as_str()).unwrap();
+        let js_value = v8::String::new(scope, value.as_str()).unwrap();
+        js_headers.set(scope, js_key.into(), js_value.into());
+    }
+
+    // Return the JavaScript object with the headers
+    rv.set(js_headers.into());
+}
+
+//Response Methods
+pub fn response_status_code_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let response = get_response(scope, &args);
+    rv.set(v8::Number::new(scope, response.get_status_code() as f64).into());
+}
+
+pub fn response_set_header_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let response = get_response(scope, &args);
+
+    let key = args.get(0).to_rust_string_lossy(scope);
+    let value = args.get(1).to_rust_string_lossy(scope);
+
+    response.add_header(key, value);
+
+    rv.set(v8::undefined(scope).into());
 }
 

@@ -2,10 +2,9 @@ use tokio::time::{sleep, Duration};
 use rusty_v8 as v8;
 use tokio; 
 
-use crate::types::Operations;
-use crate::types::TimerOperation;
+use crate::interface::Operations;
+use crate::interface::TimerOperation;
 use crate::helper::retrieve_tx; 
-use crate::helper::print_type_of;
 
 
 // pub struct Timer<'s> {
