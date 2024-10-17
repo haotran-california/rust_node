@@ -112,6 +112,7 @@ pub fn request_method_callback(
 
     // Now you can access the Request's method
     let method = request.get_method();
+    //method ends up being some gibberish, likely needs to be decoded from utf-8 or encoded somewhere
     println!("Rust end method {}", method);
     rv.set(v8::String::new(scope, method.as_str()).unwrap().into());
 }

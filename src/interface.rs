@@ -10,6 +10,9 @@ pub enum Operations {
 pub enum TimerOperation {
     Timeout {
         callback: v8::Global<v8::Function>
+    },
+    Interval {
+        callback: v8::Global<v8::Function>
     }
 }
 

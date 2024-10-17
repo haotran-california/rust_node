@@ -87,20 +87,15 @@ pub fn set_interval_callback(
         0.0
     };
 
-    let timer_operation = TimerOperation::Timeout { 
-        callback: persistent_callback 
-    }; 
-    let wrap_ops = Operations::Timer(timer_operation);
-
     // Schedule the callback to be executed repeatedly using Tokio
     tokio::task::spawn_local(async move {
-            // Wait for the specified interval
+        loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms as u64)).await;
-
-            // Send the callback to the queue to be executed later
-            if tx.send(wrap_ops).is_err() {
-                // If sending fails (e.g., channel closed), break out of the loop
+            let persistent_callback_clone = persistent_callback.clone(); 
+            if tx.send(Operations::Timer(TimerOperation::Interval{callback: persistent_callback_clone})).is_err() {
+                break;
             }
+        }
     });
 }
 

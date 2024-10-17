@@ -156,17 +156,25 @@ async fn main() {
                 Some(operation) = rx.recv() => {
                     pending = true;
                     match operation {
+
                         // Handle TimerOperation (from setTimeout or another async task)
-                        interface::Operations::Timer(timer_callback) => {
-                            match timer_callback{
+                        interface::Operations::Timer(timer_op) => {
+                            match timer_op{
                                 interface::TimerOperation::Timeout { callback } => {
                                     let callback = callback.open(scope);
                                     let undefined = v8::undefined(scope).into();
                                     callback.call(scope, undefined, &[]).unwrap();
                                 }
+
+                                interface::TimerOperation::Interval { callback } => {
+                                    let callback = callback.open(scope);
+                                    let undefined = v8::undefined(scope).into();
+                                    callback.call(scope, undefined, &[]).unwrap();
+                                }
+
                             }
                        }
-            
+
                         // Handle FsOperation (ReadFile or WriteFile)
                         interface::Operations::Fs(fs_operation) => {
                             match fs_operation {
