@@ -77,7 +77,7 @@ impl Response {
 
 pub fn create_request_object<'s>(
     scope: &mut v8::HandleScope<'s>,
-    request: Request, // Pass the Rust Request struct
+    request: Box<Request>, // Pass the Rust Request struct
 ) -> v8::Local<'s, v8::Object> {
     // Create the Request object template
     let request_template = v8::ObjectTemplate::new(scope);
@@ -101,7 +101,7 @@ pub fn create_request_object<'s>(
     request_obj.set(scope, url_key.into(), url_fn.into());
     request_obj.set(scope, header_key.into(), header_fn.into());
 
-    let external_request = v8::External::new(scope, &request as *const _ as *mut c_void);
+    let external_request = v8::External::new(scope, Box::into_raw(request) as *const _ as *mut c_void);
 
     // Set the Rust Request object as an internal field of the JS object
     request_obj.set_internal_field(0, external_request.into());
@@ -111,7 +111,7 @@ pub fn create_request_object<'s>(
 
 pub fn create_response_object<'s>(
     scope: &mut v8::HandleScope<'s>,
-    response: Response, // Pass the Rust Response struct
+    response: Box<Response>, // Pass the Rust Response struct
 ) -> v8::Local<'s, v8::Object> {
     // Create the Response object template
     let response_template = v8::ObjectTemplate::new(scope);
@@ -131,7 +131,7 @@ pub fn create_response_object<'s>(
     response_obj.set(scope, set_header_key.into(), set_header_fn.into());
 
     // Create a Rust Response object and wrap it in External
-    let external_response = v8::External::new(scope, &response as *const _ as *mut c_void);
+    let external_response = v8::External::new(scope, Box::into_raw<response> as *const _ as *mut c_void);
 
     // Set the Rust Response object as an internal field of the JS object
     response_obj.set_internal_field(0, external_response.into());

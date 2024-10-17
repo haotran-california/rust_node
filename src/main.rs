@@ -110,12 +110,12 @@ async fn main() {
                                     request_headers.insert("User-Agent".to_string(), "curl/7.68.0".to_string());
                                     request_headers.insert("Accept".to_string(), "*/*".to_string());
                                     
-                                    let request = Request {
+                                    let request = Box::new(Request {
                                         method: "GET".to_string(),
                                         url: "/home".to_string(),
                                         headers: request_headers,
                                         body: "".to_string(), // No body for GET requests in most cases
-                                    };
+                                    });
                                     
                                     let mut response_headers = Vec::new();
                                     response_headers.push(("Content-Type".to_string(), "application/json".to_string()));
@@ -129,7 +129,6 @@ async fn main() {
                                                                         
                                     let request_obj = create_request_object(scope, request);
                                     let response_obj = create_response_object(scope, response);
-                                    println!("Breaks After Here");
 
                                     let request_value: v8::Local<v8::Value> = request_obj.into();
                                     let response_value: v8::Local<v8::Value> = response_obj.into();

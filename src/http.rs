@@ -94,6 +94,22 @@ pub fn http_server_listen_callback(
     });
 }
 
+pub fn create_request_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    // Create a request object (as a JS object in V8)
+    let request_options = v8::Object::new(scope);
+
+    // Get the JavaScript callback for handling requests
+    let js_callback = args.get(1);
+    let js_callback_function = v8::Local::<v8::Function>::try_from(js_callback).unwrap();
+
+    // Create TcpStream socket and send over to event loop for sending, implement buffered sending
+
+}
+
 // Request Methods 
 pub fn request_method_callback(
     scope: &mut v8::HandleScope,
@@ -112,8 +128,6 @@ pub fn request_method_callback(
 
     // Now you can access the Request's method
     let method = request.get_method();
-    //method ends up being some gibberish, likely needs to be decoded from utf-8 or encoded somewhere
-    println!("Rust end method {}", method);
     rv.set(v8::String::new(scope, method.as_str()).unwrap().into());
 }
 
@@ -134,7 +148,6 @@ pub fn request_url_callback(
 
     // Now you can access the Request's URL
     let url = request.get_url();
-    println!("Rust end url {}", url);
     rv.set(v8::String::new(scope, url.as_str()).unwrap().into());
 }
 
