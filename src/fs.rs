@@ -1,61 +1,99 @@
 use rusty_v8 as v8;
+use std::path::Path;
 
-//This struct has a lifetime tied to scope AND global
-//If either scope or global go out of scope than this struct goes out of scope as well 
-//However scope and global may have different lifetimes
-pub struct NodeFS<'a, 'b, P> {
-    pub name: String,
-    scope: &'a mut v8::ContextScope<'b, P>,
-    global: v8::Local<'b, v8::Object>,
-}
+use crate::interface::Operations;
+use crate::interface::FsOperation;
+use crate::helper::retrieve_tx; 
 
-impl<'a, 'b, P> NodeFS<'a, 'b, P> {
-    pub fn new(scope: &'a mut v8::ContextScope<'b, P>, global: v8::Local<'b, v8::Object>) -> Self {
-        Self {
-            name: String::from("default_name"),
-            scope,
-            global,
-        }
-    }
 
-    pub fn setup(&mut self, handle_scope: &mut v8::HandleScope<'b>) {
-        let fs_object = v8::Object::new(handle_scope);
 
-        let read_file_template = v8::FunctionTemplate::new(handle_scope, read_file_callback);
-        let read_file_function = read_file_template.get_function(handle_scope).unwrap();
+pub fn fs_read_file_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
+) {
 
-        let read_file_key = v8::String::new(handle_scope, "async_read_file").unwrap();
-        fs_object.set(handle_scope, read_file_key.into(), read_file_function.into()).unwrap();
-
-        let fs_key = v8::String::new(handle_scope, &self.name).unwrap();
-        self.global.set(handle_scope, fs_key.into(), fs_object.into()).unwrap();
-    }
-}
-
-//Function Definition 
-//readFile(path/fd, encoding, flags, signal, (err, data))
-fn read_file_callback(
-    handle_scope: &mut v8::HandleScope<'_>, 
-    args: v8::FunctionCallbackArguments<'_>, 
-    _return_object: v8::ReturnValue<'_> 
-){
-    // let path = args
-    //     .get(0) 
-    //     .to_string(handle_scope)
-    //     .unwrap()
-    //     .to_rust_string_lossy(handle_scope);
+    let raw_ptr = retrieve_tx(scope, "channel").unwrap(); // Retrieve your channel sender for async task communication
+    let tx = unsafe { &*raw_ptr };
     
-    // let encoding = args.get(1);
-    // let flags = args.get(2);
-    // let signal = args.get(3);
-    // let callback = args.get(4);
+    // Extract the file path from the arguments
+    let file_path = args.get(0);
+    let callback = args.get(1);
 
+    // Convert file path to V8 string and persist it for future use
+    let file_path_v8_str = v8::Local::<v8::String>::try_from(file_path).unwrap();
+    let persistent_file_name= v8::Global::new(scope, file_path_v8_str);
 
-    // let content:Vec<u8> = fs::read(path).await; 
-    // let result = match content {
-    //     Ok(x) => x
-    //     Err(_) => 1 
-    // };
-    println!("we read something");
+    // Check if the file path exists (synchronously in Rust)
+    let file_path_str = file_path_v8_str.to_rust_string_lossy(scope);
+    let path = Path::new(&file_path_str);
+
+    // Check if the file path exists
+    if !path.exists() {
+        let exception = v8::String::new(scope, "File does not exist").unwrap();
+        scope.throw_exception(exception.into());
+        return; 
+    }
+
+    let callback_function = v8::Local::<v8::Function>::try_from(callback).unwrap();
+    let persistent_callback = v8::Global::new(scope, callback_function);
+
+    //note this function takes closure which returns a future
+    //1. async move {}
+    //2. future:lazy()
+    //moves ownership of variables from outside the closure to instead the closure  
+
+    let read_op = FsOperation::ReadFile{
+        callback: persistent_callback, 
+        filename: persistent_file_name
+    };
+
+    let wrap_op = Operations::Fs(read_op);
+
+    tokio::task::spawn_local(async move {
+        tx.send(wrap_op).unwrap();     
+    });
+
+}
+
+pub fn fs_write_file_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
+) {
+
+    let raw_ptr = retrieve_tx(scope, "channel").unwrap(); // Retrieve your channel sender for async task communication
+    let tx = unsafe { &*raw_ptr };
+    
+    // Extract the file path from the arguments
+    let file_path = args.get(0);
+    let file_contents = args.get(1);
+    let callback = args.get(2);
+
+    // Convert file path to V8 string and persist it for future use
+    let file_path_v8_str = v8::Local::<v8::String>::try_from(file_path).unwrap();
+    let persistent_file_path = v8::Global::new(scope, file_path_v8_str);
+
+    let file_content_v8_str = v8::Local::<v8::String>::try_from(file_contents).unwrap();
+    let persistent_file_content = v8::Global::new(scope, file_content_v8_str);
+
+    // Check if the file path exists (synchronously in Rust)
+    let file_path_str = file_path_v8_str.to_rust_string_lossy(scope);
+    let path = Path::new(&file_path_str);
+
+    let callback_function = v8::Local::<v8::Function>::try_from(callback).unwrap();
+    let persistent_callback = v8::Global::new(scope, callback_function);
+
+    let write_op = FsOperation::WriteFile{
+        callback: persistent_callback, 
+        filename: persistent_file_path, 
+        contents: persistent_file_content 
+    };
+
+    let wrap_op = Operations::Fs(write_op);
+
+    tokio::task::spawn_local(async move {
+        tx.send(wrap_op).unwrap();     
+    });
 
 }
