@@ -1,9 +1,11 @@
 use rusty_v8 as v8;
 use crate::helper::retrieve_tx;
+use crate::helper::print_type_of;
 use crate::interface::Operations;
 use crate::interface::HttpOperation;
 use crate::net::Request; 
 use crate::net::Response;
+use crate::net::send_response;
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
 
@@ -246,7 +248,7 @@ pub fn response_end_callback(
     let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
 
     // Cast the external pointer back to the Rust Response object
-    let response = unsafe { &mut *(external_response.value() as *mut Response) };
+    let response_ptr = unsafe { &mut *(external_response.value() as *mut Response) };
 
     // Optional: Get the final data to be appended to the body (if provided)
     let mut final_chunk = String::from("");
@@ -257,11 +259,19 @@ pub fn response_end_callback(
     // Get the internal field (the Tokio TcpStream Socket)
     let internal_field_socket = js_response_obj.get_internal_field(scope, 1).unwrap();
     let external_socket = v8::Local::<v8::External>::try_from(internal_field_socket).unwrap();
-    let socket = unsafe { external_socket.value() as *mut tokio::net::TcpStream };
+    let socket_ptr = unsafe { external_socket.value() as *mut tokio::net::TcpStream };
 
     tokio::task::spawn_local(async move {
-        response.end(socket, Some(final_chunk));
+        let socket = unsafe { &mut *socket_ptr };
+        let response = unsafe { &mut *response_ptr };
+
+        response.end(socket, Some(final_chunk)).await;
+        //send_response(socket, response);
     });
 
     rv.set(v8::undefined(scope).into());
+}
+
+pub async fn hello_world(){
+    println!("Hello World from error points");
 }

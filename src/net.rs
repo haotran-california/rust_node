@@ -75,34 +75,58 @@ impl Response {
     }
 
     pub async fn end(&mut self, stream_ptr: *mut TcpStream, data: Option<String>) {
-        // Convert raw pointer to mutable reference 
+        println!("Inside end() method");
+
+        if stream_ptr.is_null(){
+            println!("Stream pointer is null");
+        }
+        // Convert raw pointer to mutable reference
         let stream = unsafe { &mut *stream_ptr };
 
         // Append any additional data to the body
         if let Some(additional_data) = data {
+            println!("{}", additional_data);
             self.body.push_str(&additional_data);
         }
 
         // Send the HTTP status line
         let status_line = format!("HTTP/1.1 {} OK\r\n", self.status_code);
-        stream.write_all(status_line.as_bytes()).await.unwrap();
+        if let Err(e) = stream.write_all(status_line.as_bytes()).await {
+            eprintln!("Failed to write status line: {}", e);
+            return;
+        }
 
         // Send the headers
         for (key, value) in &self.headers {
             let header_line = format!("{}: {}\r\n", key, value);
-            stream.write_all(header_line.as_bytes()).await.unwrap();
+            if let Err(e) = stream.write_all(header_line.as_bytes()).await {
+                eprintln!("Failed to write header: {}: {}", key, e);
+                return;
+            }
         }
 
         // End headers with an empty line
-        stream.write_all(b"\r\n").await.unwrap();
+        if let Err(e) = stream.write_all(b"\r\n").await {
+            eprintln!("Failed to write end of headers: {}", e);
+            return;
+        }
 
         // Send the body
-        stream.write_all(self.body.as_bytes()).await.unwrap();
+        if let Err(e) = stream.write_all(self.body.as_bytes()).await {
+            eprintln!("Failed to write body: {}", e);
+            return;
+        }
 
         // Flush and close the stream
-        stream.flush().await.unwrap();
-        stream.shutdown().await.unwrap();
-    }
+        if let Err(e) = stream.flush().await {
+            eprintln!("Failed to flush the stream: {}", e);
+            return;
+        }
+
+        if let Err(e) = stream.shutdown().await {
+            eprintln!("Failed to shutdown the stream: {}", e);
+        }
+        }
 }
 
 pub fn create_request_object<'s>(
@@ -176,7 +200,8 @@ pub fn create_response_object<'s>(
     response_obj
 }
 
-pub async fn send_response(mut stream: TcpStream, response: Response) {
+pub async fn send_response(stream: &mut TcpStream, response: &mut Response) {
+    println!("Within send response");
     // Write the status line
     let status_line = format!("HTTP/1.1 {} OK\r\n", response.status_code);
     stream.write_all(status_line.as_bytes()).await.unwrap();
@@ -275,5 +300,5 @@ pub async fn handle_http_request(mut socket: tokio::net::TcpStream) {
     };
 
     // Send the response back to the client
-    send_response(socket, res).await;
+    //send_response(socket, res).await;
 }
