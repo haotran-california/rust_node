@@ -11,9 +11,9 @@ extern crate httparse;
 use crate::http::request_method_callback;
 use crate::http::request_url_callback;
 use crate::http::request_headers_callback;
-use crate::http::response_status_code_callback;
+use crate::http::response_set_status_code_callback;
 use crate::http::response_set_header_callback;
-
+use crate::http::response_end_callback;
 
 pub struct Request {
     pub method: String,                    // HTTP method (e.g., GET, POST)
@@ -70,8 +70,38 @@ impl Response {
         self.headers.push((key, value));
     }
 
-    pub fn get_status_code(&self) -> u16 {
-        self.status_code
+    pub fn set_status_code(&mut self, code: u16) {
+        self.status_code = code; 
+    }
+
+    pub async fn end(&mut self, stream_ptr: *mut TcpStream, data: Option<String>) {
+        // Convert raw pointer to mutable reference 
+        let stream = unsafe { &mut *stream_ptr };
+
+        // Append any additional data to the body
+        if let Some(additional_data) = data {
+            self.body.push_str(&additional_data);
+        }
+
+        // Send the HTTP status line
+        let status_line = format!("HTTP/1.1 {} OK\r\n", self.status_code);
+        stream.write_all(status_line.as_bytes()).await.unwrap();
+
+        // Send the headers
+        for (key, value) in &self.headers {
+            let header_line = format!("{}: {}\r\n", key, value);
+            stream.write_all(header_line.as_bytes()).await.unwrap();
+        }
+
+        // End headers with an empty line
+        stream.write_all(b"\r\n").await.unwrap();
+
+        // Send the body
+        stream.write_all(self.body.as_bytes()).await.unwrap();
+
+        // Flush and close the stream
+        stream.flush().await.unwrap();
+        stream.shutdown().await.unwrap();
     }
 }
 
@@ -111,30 +141,37 @@ pub fn create_request_object<'s>(
 
 pub fn create_response_object<'s>(
     scope: &mut v8::HandleScope<'s>,
-    response: Box<Response>, // Pass the Rust Response struct
+    response: Box<Response>, 
+    socket: Box<tokio::net::TcpStream>
 ) -> v8::Local<'s, v8::Object> {
     // Create the Response object template
     let response_template = v8::ObjectTemplate::new(scope);
-    response_template.set_internal_field_count(1); // Store the Rust Response struct internally
+    response_template.set_internal_field_count(2); // Store the Rust Response struct internally
     let response_obj = response_template.new_instance(scope).unwrap();
 
-    let status_code_fn_template = v8::FunctionTemplate::new(scope, response_status_code_callback);
+    let status_code_fn_template = v8::FunctionTemplate::new(scope, response_set_status_code_callback);
     let set_header_fn_template = v8::FunctionTemplate::new(scope, response_set_header_callback);
+    let set_end_fn_template = v8::FunctionTemplate::new(scope, response_end_callback);
 
     let status_fn = status_code_fn_template.get_function(scope).unwrap();
-    let set_header_fn = status_code_fn_template.get_function(scope).unwrap();
+    let set_header_fn = set_header_fn_template.get_function(scope).unwrap();
+    let end_fn = set_end_fn_template.get_function(scope).unwrap();
 
     let status_key = v8::String::new(scope, "statusCode").unwrap();
-    let set_header_key= v8::String::new(scope, "setHeader").unwrap();
+    let set_header_key = v8::String::new(scope, "setHeader").unwrap();
+    let end_key = v8::String::new(scope, "end").unwrap(); 
 
     response_obj.set(scope, status_key.into(), status_fn.into());
     response_obj.set(scope, set_header_key.into(), set_header_fn.into());
+    response_obj.set(scope, end_key.into(), end_fn.into());
 
     // Create a Rust Response object and wrap it in External
-    let external_response = v8::External::new(scope, Box::into_raw<response> as *const _ as *mut c_void);
+    let external_response = v8::External::new(scope, Box::into_raw(response) as *const _ as *mut c_void);
+    let external_socket = v8::External::new(scope, Box::into_raw(socket) as *const _ as *mut c_void);
 
     // Set the Rust Response object as an internal field of the JS object
     response_obj.set_internal_field(0, external_response.into());
+    response_obj.set_internal_field(1, external_socket.into());
 
     response_obj
 }

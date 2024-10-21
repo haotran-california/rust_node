@@ -4,6 +4,8 @@ use crate::interface::Operations;
 use crate::interface::HttpOperation;
 use crate::net::Request; 
 use crate::net::Response;
+use tokio::io::AsyncWriteExt;
+use tokio::io::AsyncReadExt;
 
 pub fn create_server_callback(
     scope: &mut v8::HandleScope,
@@ -184,7 +186,7 @@ pub fn request_headers_callback(
 }
 
 // Response Methods
-pub fn response_status_code_callback(
+pub fn response_set_status_code_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
@@ -197,7 +199,11 @@ pub fn response_status_code_callback(
     let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
 
     // Cast the external pointer back to the Rust Response object
-    let response = unsafe { &*(external_response.value() as *mut Response) };
+    let response = unsafe { &mut *(external_response.value() as *mut Response) };
+
+    let status_code = args.get(0).to_rust_string_lossy(scope);
+
+    response.set_status_code(status_code.parse::<u16>().unwrap_or(400));
 
     // Now you can access the Response's status code
     rv.set(v8::Number::new(scope, response.status_code as f64).into());
@@ -223,6 +229,39 @@ pub fn response_set_header_callback(
     let value = args.get(1).to_rust_string_lossy(scope);
 
     response.add_header(key, value);
+
+    rv.set(v8::undefined(scope).into());
+}
+
+pub fn response_end_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+){
+    // Retrieve the JS object (the "this" object in JavaScript)
+    let js_response_obj = args.this();
+
+    // Get the internal field (the Rust Response struct)
+    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
+    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Cast the external pointer back to the Rust Response object
+    let response = unsafe { &mut *(external_response.value() as *mut Response) };
+
+    // Optional: Get the final data to be appended to the body (if provided)
+    let mut final_chunk = String::from("");
+    if args.length() > 0 && args.get(0).is_string() {
+        final_chunk = args.get(0).to_rust_string_lossy(scope);
+    }
+
+    // Get the internal field (the Tokio TcpStream Socket)
+    let internal_field_socket = js_response_obj.get_internal_field(scope, 1).unwrap();
+    let external_socket = v8::Local::<v8::External>::try_from(internal_field_socket).unwrap();
+    let socket = unsafe { external_socket.value() as *mut tokio::net::TcpStream };
+
+    tokio::task::spawn_local(async move {
+        response.end(socket, Some(final_chunk));
+    });
 
     rv.set(v8::undefined(scope).into());
 }

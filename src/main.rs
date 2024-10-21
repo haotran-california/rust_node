@@ -121,14 +121,15 @@ async fn main() {
                                     response_headers.push(("Content-Type".to_string(), "application/json".to_string()));
                                     response_headers.push(("Content-Length".to_string(), "27".to_string()));
                                     
-                                    let response = Response {
+                                    let response = Box::new(Response {
                                         status_code: 200,
                                         headers: response_headers,
                                         body: "{\"message\":\"Success\"}".to_string(),
-                                    };
+                                    });
                                                                         
+                                    let boxed_socket = Box::new(socket);
                                     let request_obj = create_request_object(scope, request);
-                                    let response_obj = create_response_object(scope, response);
+                                    let response_obj = create_response_object(scope, response, boxed_socket);
 
                                     let request_value: v8::Local<v8::Value> = request_obj.into();
                                     let response_value: v8::Local<v8::Value> = response_obj.into();
