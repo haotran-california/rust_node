@@ -1,6 +1,7 @@
 use rusty_v8 as v8;
 use tokio; 
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::io::AsyncReadExt;
 use std::ffi::c_void;
 use std::collections::HashMap;
 
@@ -32,7 +33,7 @@ async fn main() {
     let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/examples/06.txt"; 
+    let filepath: &str = "src/examples/07.txt"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -54,6 +55,7 @@ async fn main() {
     assign_tx_to_global(scope, &tx_http, "http");
 
     assign_callback_to_global(scope, "createServer", http::create_server_callback);
+    assign_callback_to_global(scope, "get", http::get_callback);
 
     //Timer Operations
     assign_callback_to_global(scope, "setTimeout", timer::set_timeout_callback);
@@ -143,6 +145,62 @@ async fn main() {
                                     let callback = callback.open(scope);
                                     callback.call(scope, undefined, &args).unwrap();
                                 }
+
+                                interface::HttpOperation::Get(mut socket, callback) => {
+                                    //parse response into object from socket
+                                    let mut response_data = String::new();
+                                    if let Err(e) = socket.read_to_string(&mut response_data).await {
+                                        eprintln!("Failed to read response from socket: {}", e);
+                                        return;
+                                    }
+                                    println!("Response Data: {}", response_data);
+                                
+                                    // Prepare to parse with httparse
+                                    let mut headers = [httparse::EMPTY_HEADER; 32]; // Fixed-size buffer for headers
+                                    let mut http_parse_response = httparse::Response::new(&mut headers);
+
+                                    let response_data_bytes = response_data.as_bytes();
+                                    let parsed_len = match http_parse_response.parse(response_data_bytes) {
+                                        Ok(httparse::Status::Complete(len)) => len,
+                                        Ok(httparse::Status::Partial) => {
+                                            eprintln!("Incomplete HTTP response");
+                                            return;
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Failed to parse HTTP response: {}", e);
+                                            return;
+                                        }
+                                    };
+
+                                    // Get the status code
+                                    let status_code = http_parse_response.code.unwrap_or(400);
+
+                                    // Convert headers to Vec<(String, String)>
+                                    let response_headers: Vec<(String, String)> = http_parse_response.headers.iter().map(|h| {
+                                        (h.name.to_string(), String::from_utf8_lossy(h.value).to_string())
+                                    }).collect();
+
+                                    // Extract the body from the remaining bytes
+                                    let body = String::from_utf8_lossy(&response_data_bytes[parsed_len..]).to_string();
+
+                                    let response = Box::new(Response {
+                                        status_code, 
+                                        headers: response_headers, 
+                                        body
+                                    });
+
+                                    let boxed_socket = Box::new(socket);
+
+                                    let response_obj = create_response_object(scope, response, boxed_socket);
+                                    let response_value: v8::Local<v8::Value> = response_obj.into();
+
+                                    let args = vec![response_value];
+                                    
+                                    let undefined = v8::undefined(scope).into();
+                                    let callback = callback.open(scope);
+                                    callback.call(scope, undefined, &args).unwrap();
+                                }
+
                             } 
                         }, 
 

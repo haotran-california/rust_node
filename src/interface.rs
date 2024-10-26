@@ -29,6 +29,8 @@ pub enum FsOperation {
 }
 
 pub enum HttpOperation {
+    Get(tokio::net::TcpStream, v8::Global<v8::Function>),
+    //Request(),
     Listen(tokio::net::TcpStream, v8::Global<v8::Function>)
     // Request(tokio::net::TcpStream, v8::Global<v8::Function>)
 }

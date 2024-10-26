@@ -1,4 +1,7 @@
 use rusty_v8 as v8;
+use url::Url;
+use tokio::io::AsyncWriteExt;
+use tokio::io::AsyncReadExt;
 use crate::helper::retrieve_tx;
 use crate::helper::print_type_of;
 use crate::interface::Operations;
@@ -6,8 +9,6 @@ use crate::interface::HttpOperation;
 use crate::net::Request; 
 use crate::net::Response;
 use crate::net::send_response;
-use tokio::io::AsyncWriteExt;
-use tokio::io::AsyncReadExt;
 
 pub fn create_server_callback(
     scope: &mut v8::HandleScope,
@@ -35,6 +36,73 @@ pub fn create_server_callback(
     // Return the server object to JavaScript
     // Note V8 internall promotes the local handle by moving it onto the Javascript heap so that it remains valid 
     rv.set(server_obj.into());
+}
+
+pub fn get_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    rv: v8::ReturnValue,
+) {
+    // Get the JavaScript callback for handling requests
+    let url = args.get(0);
+    let url_v8_string = v8::Local::<v8::String>::try_from(url).unwrap();
+    let url_rust_string = url_v8_string.to_rust_string_lossy(scope);
+
+    // Get the JavaScript callback for handling requests
+    let js_callback = args.get(1);
+    let js_callback_function = v8::Local::<v8::Function>::try_from(js_callback).unwrap();
+
+    // Use a persistent handle to store the callback function for later use
+    let js_callback_global = v8::Global::new(scope, js_callback_function);
+
+    // Going to call the GET request within the callback as the logic is more simple
+    // Attempt to parse the URL
+    let parsed_url = match Url::parse(&url_rust_string) {
+        Ok(url) => url,
+        Err(e) => {
+            eprintln!("Failed to parse URL: {}", e);
+            return;
+        }
+    };
+
+    // Attempt to retrieve the hostname
+    let hostname = match parsed_url.host_str() {
+        Some(host) => host.to_string(),
+        None => {
+            eprintln!("Invalid hostname in URL");
+            return;
+        }
+    };
+
+    let hostname_clone = hostname.clone();
+    let port = parsed_url.port_or_known_default().unwrap_or(80);
+    let path = parsed_url.path().to_owned();
+
+    // Retrieve channel transmitter 
+    let raw_ptr = retrieve_tx(scope, "http").unwrap(); // Assuming this function returns the channel sender
+    let tx = unsafe { &*raw_ptr };
+
+    tokio::task::spawn_local(async move {
+        // Connect to the server and send the HTTP GET request
+        match tokio::net::TcpStream::connect((hostname_clone, port)).await {
+            Ok(mut socket) => {
+                // Connection successful, send the HTTP GET request
+                let request = format!("GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", path, hostname);
+                if let Err(e) = socket.write_all(request.as_bytes()).await {
+                    eprintln!("Failed to send HTTP request: {}", e);
+                    return;
+                }
+
+                // Handle the HTTP operation with the channel transmitter
+                let http_operation = Operations::Http(HttpOperation::Get(socket, js_callback_global));
+                tx.send(http_operation);
+            }
+            Err(e) => {
+                // Connection failed, print an error message
+                eprintln!("Failed to connect to {}:{} - {}", hostname, port, e);
+            }
+        }
+    });
 }
 
 pub fn http_server_listen_callback(
@@ -207,8 +275,6 @@ pub fn response_set_status_code_callback(
 
     response.set_status_code(status_code.parse::<u16>().unwrap_or(400));
 
-    // Now you can access the Response's status code
-    rv.set(v8::Number::new(scope, response.status_code as f64).into());
 }
 
 pub fn response_set_header_callback(
@@ -272,6 +338,3 @@ pub fn response_end_callback(
     rv.set(v8::undefined(scope).into());
 }
 
-pub async fn hello_world(){
-    println!("Hello World from error points");
-}
