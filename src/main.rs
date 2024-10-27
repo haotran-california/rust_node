@@ -56,6 +56,7 @@ async fn main() {
 
     assign_callback_to_global(scope, "createServer", http::create_server_callback);
     assign_callback_to_global(scope, "get", http::get_callback);
+    assign_callback_to_global(scope, "request", http::create_request_callback);
 
     //Timer Operations
     assign_callback_to_global(scope, "setTimeout", timer::set_timeout_callback);
@@ -107,43 +108,43 @@ async fn main() {
                                     //net::handle_http_request(socket);
 
                                     //Supose we have finished parsing Request and Response
-                                    let mut request_headers = HashMap::new();
-                                    request_headers.insert("Host".to_string(), "localhost".to_string());
-                                    request_headers.insert("User-Agent".to_string(), "curl/7.68.0".to_string());
-                                    request_headers.insert("Accept".to_string(), "*/*".to_string());
+                                    // let mut request_headers = HashMap::new();
+                                    // request_headers.insert("Host".to_string(), "localhost".to_string());
+                                    // request_headers.insert("User-Agent".to_string(), "curl/7.68.0".to_string());
+                                    // request_headers.insert("Accept".to_string(), "*/*".to_string());
                                     
-                                    let request = Box::new(Request {
-                                        method: "GET".to_string(),
-                                        url: "/home".to_string(),
-                                        headers: request_headers,
-                                        body: "".to_string(), // No body for GET requests in most cases
-                                    });
+                                    // let request = Box::new(Request {
+                                    //     method: "GET".to_string(),
+                                    //     url: "/home".to_string(),
+                                    //     headers: request_headers,
+                                    //     body: "".to_string(), // No body for GET requests in most cases
+                                    // });
                                     
-                                    let mut response_headers = Vec::new();
-                                    response_headers.push(("Content-Type".to_string(), "application/json".to_string()));
-                                    response_headers.push(("Content-Length".to_string(), "27".to_string()));
+                                    // let mut response_headers = Vec::new();
+                                    // response_headers.push(("Content-Type".to_string(), "application/json".to_string()));
+                                    // response_headers.push(("Content-Length".to_string(), "27".to_string()));
                                     
-                                    let response = Box::new(Response {
-                                        status_code: 200,
-                                        headers: response_headers,
-                                        body: "{\"message\":\"Success\"}".to_string(),
-                                    });
+                                    // let response = Box::new(Response {
+                                    //     status_code: 200,
+                                    //     headers: response_headers,
+                                    //     body: "{\"message\":\"Success\"}".to_string(),
+                                    // });
                                                                         
-                                    let boxed_socket = Box::new(socket);
-                                    let request_obj = create_request_object(scope, request);
-                                    let response_obj = create_response_object(scope, response, boxed_socket);
+                                    // let boxed_socket = Box::new(socket);
+                                    // let request_obj = create_request_object(scope, request);
+                                    // let response_obj = create_response_object(scope, response, boxed_socket);
 
-                                    let request_value: v8::Local<v8::Value> = request_obj.into();
-                                    let response_value: v8::Local<v8::Value> = response_obj.into();
+                                    // let request_value: v8::Local<v8::Value> = request_obj.into();
+                                    // let response_value: v8::Local<v8::Value> = response_obj.into();
 
                                     
-                                    // 2. Create V8 arguments (request_obj and response_obj should already be valid V8 objects)
-                                    let args = vec![request_value, response_value];
+                                    // // 2. Create V8 arguments (request_obj and response_obj should already be valid V8 objects)
+                                    // let args = vec![request_value, response_value];
                                     
-                                    // 3. Call the callback function with the request and response objects
-                                    let undefined = v8::undefined(scope).into();
-                                    let callback = callback.open(scope);
-                                    callback.call(scope, undefined, &args).unwrap();
+                                    // // 3. Call the callback function with the request and response objects
+                                    // let undefined = v8::undefined(scope).into();
+                                    // let callback = callback.open(scope);
+                                    // callback.call(scope, undefined, &args).unwrap();
                                 }
 
                                 interface::HttpOperation::Get(mut socket, callback) => {
@@ -175,10 +176,11 @@ async fn main() {
                                     // Get the status code
                                     let status_code = http_parse_response.code.unwrap_or(400);
 
-                                    // Convert headers to Vec<(String, String)>
-                                    let response_headers: Vec<(String, String)> = http_parse_response.headers.iter().map(|h| {
+
+                                    let response_headers_vec: Vec<(String, String)> = http_parse_response.headers.iter().map(|h| {
                                         (h.name.to_string(), String::from_utf8_lossy(h.value).to_string())
                                     }).collect();
+                                    let response_headers: HashMap<String, String> = response_headers_vec.into_iter().collect();
 
                                     // Extract the body from the remaining bytes
                                     let body = String::from_utf8_lossy(&response_data_bytes[parsed_len..]).to_string();
@@ -199,6 +201,12 @@ async fn main() {
                                     let undefined = v8::undefined(scope).into();
                                     let callback = callback.open(scope);
                                     callback.call(scope, undefined, &args).unwrap();
+                                }
+
+                                interface::HttpOperation::Request(socket, callback, channel) => {
+
+
+
                                 }
 
                             } 

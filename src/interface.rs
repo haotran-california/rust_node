@@ -1,5 +1,6 @@
 use rusty_v8 as v8; 
 use tokio;
+use crate::net::Request;
 
 pub enum Operations {
     Timer(TimerOperation),
@@ -30,7 +31,6 @@ pub enum FsOperation {
 
 pub enum HttpOperation {
     Get(tokio::net::TcpStream, v8::Global<v8::Function>),
-    //Request(),
+    Request(tokio::net::TcpStream, v8::Global<v8::Function>, tokio::sync::oneshot::Sender<Request>),
     Listen(tokio::net::TcpStream, v8::Global<v8::Function>)
-    // Request(tokio::net::TcpStream, v8::Global<v8::Function>)
 }

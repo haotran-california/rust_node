@@ -1,7 +1,9 @@
 use rusty_v8 as v8;
+use std::collections::HashMap;
 use url::Url;
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
+use tokio::sync::{Mutex, oneshot};
 use crate::helper::retrieve_tx;
 use crate::helper::print_type_of;
 use crate::interface::Operations;
@@ -9,6 +11,7 @@ use crate::interface::HttpOperation;
 use crate::net::Request; 
 use crate::net::Response;
 use crate::net::send_response;
+use crate::net::create_request_object; 
 
 pub fn create_server_callback(
     scope: &mut v8::HandleScope,
@@ -105,6 +108,137 @@ pub fn get_callback(
     });
 }
 
+pub fn create_request_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    // Get the JavaScript callback for handling requests
+    let options_raw = args.get(0);
+    let options = v8::Local::<v8::Object>::try_from(options_raw).unwrap();
+
+    // Get the JavaScript callback for handling requests
+    let js_callback = args.get(1);
+    let js_callback_function = v8::Local::<v8::Function>::try_from(js_callback).unwrap();
+    let js_callback_global = v8::Global::new(scope, js_callback_function);
+
+    // Extract required fields from options object
+    let hostname_key = v8::String::new(scope, "hostname").unwrap();
+    let method_key = v8::String::new(scope, "method").unwrap();
+    let port_key = v8::String::new(scope, "port").unwrap();
+    let path_key = v8::String::new(scope, "path").unwrap();
+
+    let hostname = options.get(scope, hostname_key.into()).unwrap().to_rust_string_lossy(scope);
+    let method = options.get(scope, method_key.into()).unwrap().to_rust_string_lossy(scope);
+    let port = options.get(scope, port_key.into()).unwrap().to_rust_string_lossy(scope);
+    let path = options.get(scope, path_key.into()).unwrap().to_rust_string_lossy(scope);
+
+    let mut headers_map = HashMap::new();
+    let headers_key = v8::String::new(scope, "headers").unwrap();
+    let headers_obj = options.get(scope, headers_key.into()).unwrap(); 
+    let headers_obj = v8::Local::<v8::Object>::try_from(headers_obj).unwrap();
+    let property_names = headers_obj.get_property_names(scope).unwrap();
+
+    // Iterate over each key and get the corresponding value
+    for i in 0..property_names.length() {
+        // Get the key as a string
+        let key = property_names.get_index(scope, i).unwrap();
+        let key_str = key.to_rust_string_lossy(scope);
+
+        // Get the value associated with the key
+        let value = headers_obj.get(scope, key).unwrap();
+        let value_str = value.to_rust_string_lossy(scope);
+
+        // Insert into the HashMap
+        headers_map.insert(key_str, value_str);
+    }
+
+    let raw_ptr = retrieve_tx(scope, "http").unwrap(); // Assuming this function returns the channel sender
+    let tx = unsafe { &*raw_ptr };
+    let (oneshot_tx, oneshot_rx) = oneshot::channel();
+
+    let full_url = format!("{}{}", hostname, path); // Construct the full URL once
+    let port: u16 = port.parse().unwrap(); // Parse the port once
+
+    let request = Box::new(Request {
+        method,
+        url: full_url,
+        headers: headers_map,
+        body: String::new(),
+    });
+
+    // Spawn the async task to handle the connection
+    let hostname_clone = hostname.clone(); // Only clone once here
+    tokio::task::spawn_local(async move {
+        match tokio::net::TcpStream::connect((hostname_clone.as_str(), port)).await {
+            Ok(socket) => {
+                // Send the result back through the oneshot channel
+                let _ = oneshot_tx.send(Ok(socket));
+            }
+            Err(e) => {
+                // Send the error back through the oneshot channel
+                let _ = oneshot_tx.send(Err(e));
+            }
+        }
+    });
+
+    // Receive the result synchronously using `rx`
+    if let Ok(result) = oneshot_rx.blocking_recv() {
+        match result {
+            Ok(mut socket) => {
+                // Now create the request object synchronously using `scope` and `rv`
+                let boxed_socket = Box::new(socket);
+                let request_obj = create_request_object(scope, request, boxed_socket);
+                let request_value: v8::Local<v8::Value> = request_obj.into();
+                rv.set(request_value.into());
+            }
+            Err(e) => {
+                eprintln!("Failed to connect to {}:{} - {}", hostname, port, e);
+            }
+        }
+    }
+
+    // let shared_http_request = Arc::new(Mutex::new(Response {
+    //     method: String::new(),                    
+    //     url: String::new(),                       
+    //     headers: HashMap<String, String>,    
+    //     body: new(),    
+    // }));
+    
+    // let shared_http_request_clone = Arc::clone(&request);
+    // let (oneshot_tx, oneshot_rx) = oneshot::channel::<Box<Request>>();
+
+    // tokio::task::spawn_local(async move {
+    //     // Connect to the server and send the HTTP GET request
+    //     match tokio::net::TcpStream::connect((hostname, port)).await {
+    //         Ok(mut socket) => {
+    //             // Connection successful, send the HTTP GET request
+    //             let request = format!("{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", method, path, hostname);
+    //             if let Err(e) = socket.write_all(request.as_bytes()).await {
+    //                 eprintln!("Failed to send HTTP request: {}", e);
+    //                 return;
+    //             }
+
+    //             // Handle the HTTP operation with the channel transmitter
+    //             let http_operation = Operations::Http(HttpOperation::Request(socket, js_callback_global, oneshot_tx));
+    //             tx.send(http_operation);
+    //         }
+    //         Err(e) => {
+    //             // Connection failed, print an error message
+    //             eprintln!("Failed to connect to {}:{} - {}", hostname, port, e);
+    //         }
+    //     }
+
+
+    // });
+
+    // tokio::task::spawn_local(async move {
+    //     if let Ok(boxed_req) = rx.await {
+    //         let unboxed_req: Request = *boxed_req;
+    //         rv.set(unboxed_req.into());
+    //     }
+    // })
+}
 pub fn http_server_listen_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -166,21 +300,6 @@ pub fn http_server_listen_callback(
     });
 }
 
-pub fn create_request_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut rv: v8::ReturnValue,
-) {
-    // Create a request object (as a JS object in V8)
-    let request_options = v8::Object::new(scope);
-
-    // Get the JavaScript callback for handling requests
-    let js_callback = args.get(1);
-    let js_callback_function = v8::Local::<v8::Function>::try_from(js_callback).unwrap();
-
-    // Create TcpStream socket and send over to event loop for sending, implement buffered sending
-
-}
 
 // Request Methods 
 pub fn request_method_callback(
@@ -254,6 +373,42 @@ pub fn request_headers_callback(
     // Return the JavaScript object with the headers
     rv.set(js_headers.into());
 }
+pub fn request_end_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+){
+    // Retrieve the JS object (the "this" object in JavaScript)
+    let js_response_obj = args.this();
+
+    // Get the internal field (the Rust Response struct)
+    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
+    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Cast the external pointer back to the Rust Response object
+    let response_ptr = unsafe { &mut *(external_response.value() as *mut Response) };
+
+    // Optional: Get the final data to be appended to the body (if provided)
+    let mut final_chunk = String::from("");
+    if args.length() > 0 && args.get(0).is_string() {
+        final_chunk = args.get(0).to_rust_string_lossy(scope);
+    }
+
+    // Get the internal field (the Tokio TcpStream Socket)
+    let internal_field_socket = js_response_obj.get_internal_field(scope, 1).unwrap();
+    let external_socket = v8::Local::<v8::External>::try_from(internal_field_socket).unwrap();
+    let socket_ptr = unsafe { external_socket.value() as *mut tokio::net::TcpStream };
+
+    tokio::task::spawn_local(async move {
+        let socket = unsafe { &mut *socket_ptr };
+        let response = unsafe { &mut *response_ptr };
+
+        response.end(socket, Some(final_chunk)).await;
+        //send_response(socket, response);
+    });
+
+    rv.set(v8::undefined(scope).into());
+}
 
 // Response Methods
 pub fn response_set_status_code_callback(
@@ -274,7 +429,7 @@ pub fn response_set_status_code_callback(
     let status_code = args.get(0).to_rust_string_lossy(scope);
 
     response.set_status_code(status_code.parse::<u16>().unwrap_or(400));
-
+    rv.set(v8::undefined(scope).into());
 }
 
 pub fn response_set_header_callback(

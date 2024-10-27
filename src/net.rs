@@ -11,6 +11,7 @@ extern crate httparse;
 use crate::http::request_method_callback;
 use crate::http::request_url_callback;
 use crate::http::request_headers_callback;
+use crate::http::request_end_callback;
 use crate::http::response_set_status_code_callback;
 use crate::http::response_set_header_callback;
 use crate::http::response_end_callback;
@@ -24,7 +25,7 @@ pub struct Request {
 
 pub struct Response {
     pub status_code: u16,                  // HTTP status code (e.g., 200 for OK)
-    pub headers: Vec<(String, String)>,    // List of headers as (key, value) pairs
+    pub headers: HashMap<String, String>,  // List of headers as (key, value) pairs
     pub body: String,                      // Response body
 }
 
@@ -55,10 +56,57 @@ impl Request {
         &self.url
     }
 
+    pub async fn end(&mut self, stream_ptr: *mut TcpStream, data: Option<String>) {
+        if stream_ptr.is_null(){
+            println!("Error stream pointer is null");
+        }
+        // Convert raw pointer to mutable reference
+        let stream = unsafe { &mut *stream_ptr };
+
+        // Append any additional data to the body
+        if let Some(additional_data) = data {
+            println!("{}", additional_data);
+            self.body.push_str(&additional_data);
+        }
+
+        // can't call the request header in the object as it complicates the initialization and passing of the socket 
+        // let request_string = format!("{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", self.method, self.path, self.hostname);
+
+        // // Send the HTTP status line
+        // if let Err(e) = stream.write_all(request_string.as_bytes()).await {
+        //     eprintln!("Failed to write status line: {}", e);
+        //     return;
+        // }
+
+        // Send the headers
+        for (key, value) in &self.headers {
+            let header_line = format!("{}: {}\r\n", key, value);
+            if let Err(e) = stream.write_all(header_line.as_bytes()).await {
+                eprintln!("Failed to write header: {}: {}", key, e);
+                return;
+            }
+        }
+
+        // End headers with an empty line
+        if let Err(e) = stream.write_all(b"\r\n").await {
+            eprintln!("Failed to write end of headers: {}", e);
+            return;
+        }
+
+        // Flush and close the stream
+        if let Err(e) = stream.flush().await {
+            eprintln!("Failed to flush the stream: {}", e);
+            return;
+        }
+
+        if let Err(e) = stream.shutdown().await {
+            eprintln!("Failed to shutdown the stream: {}", e);
+        }
+    }
 }
 
 impl Response {
-    pub fn new(status_code: u16, headers: Vec<(String, String)>, body: String) -> Self {
+    pub fn new(status_code: u16, headers: HashMap<String, String>, body: String) -> Self {
         Response {
             status_code,
             headers,
@@ -67,7 +115,7 @@ impl Response {
     }
 
     pub fn add_header(&mut self, key: String, value: String) {
-        self.headers.push((key, value));
+        self.headers.insert(key, value);
     }
 
     pub fn set_status_code(&mut self, code: u16) {
@@ -75,11 +123,10 @@ impl Response {
     }
 
     pub async fn end(&mut self, stream_ptr: *mut TcpStream, data: Option<String>) {
-        println!("Inside end() method");
-
         if stream_ptr.is_null(){
             println!("Stream pointer is null");
         }
+
         // Convert raw pointer to mutable reference
         let stream = unsafe { &mut *stream_ptr };
 
@@ -126,39 +173,46 @@ impl Response {
         if let Err(e) = stream.shutdown().await {
             eprintln!("Failed to shutdown the stream: {}", e);
         }
-        }
+    }
 }
 
 pub fn create_request_object<'s>(
     scope: &mut v8::HandleScope<'s>,
     request: Box<Request>, // Pass the Rust Request struct
+    socket: Box<tokio::net::TcpStream>
 ) -> v8::Local<'s, v8::Object> {
     // Create the Request object template
     let request_template = v8::ObjectTemplate::new(scope);
-    request_template.set_internal_field_count(1); // Store the Rust Request struct internally
+    request_template.set_internal_field_count(2); // Store the Rust Request struct internally
     let request_obj = request_template.new_instance(scope).unwrap();
 
     // Add methods: .method(), .url(), .headers()
     let method_fn_template = v8::FunctionTemplate::new(scope, request_method_callback);
     let url_fn_template = v8::FunctionTemplate::new(scope, request_url_callback);
     let headers_fn_template = v8::FunctionTemplate::new(scope, request_headers_callback);
+    let end_fn_template = v8::FunctionTemplate::new(scope, request_end_callback); 
 
     let method_fn = method_fn_template.get_function(scope).unwrap();
     let url_fn = url_fn_template.get_function(scope).unwrap();
     let header_fn = headers_fn_template.get_function(scope).unwrap();
+    let end_fn = end_fn_template.get_function(scope).unwrap();
 
     let method_key = v8::String::new(scope, "method").unwrap();
     let url_key = v8::String::new(scope, "url").unwrap();
     let header_key = v8::String::new(scope, "headers").unwrap();
+    let end_key = v8::String::new(scope, "end").unwrap();
 
     request_obj.set(scope, method_key.into(), method_fn.into());
     request_obj.set(scope, url_key.into(), url_fn.into());
     request_obj.set(scope, header_key.into(), header_fn.into());
+    request_obj.set(scope, end_key.into(), end_fn.into());
 
     let external_request = v8::External::new(scope, Box::into_raw(request) as *const _ as *mut c_void);
+    let external_socket = v8::External::new(scope, Box::into_raw(socket) as *const _ as *mut c_void);
 
     // Set the Rust Request object as an internal field of the JS object
     request_obj.set_internal_field(0, external_request.into());
+    request_obj.set_internal_field(1, external_socket.into());
 
     request_obj
 }
@@ -170,7 +224,7 @@ pub fn create_response_object<'s>(
 ) -> v8::Local<'s, v8::Object> {
     // Create the Response object template
     let response_template = v8::ObjectTemplate::new(scope);
-    response_template.set_internal_field_count(2); // Store the Rust Response struct internally
+    response_template.set_internal_field_count(2); // Store the Rust Response struct and socket internally
     let response_obj = response_template.new_instance(scope).unwrap();
 
     let status_code_fn_template = v8::FunctionTemplate::new(scope, response_set_status_code_callback);
@@ -293,10 +347,13 @@ pub async fn handle_http_request(mut socket: tokio::net::TcpStream) {
     let request = parse_http_request(request_data.as_bytes());
 
     // Now we can create a Response
+    let mut headers = HashMap::new();
+    headers.insert("Content-Type".to_string(), "text/plain".to_string());
+
     let res = Response {
         status_code: 200,
-        headers: vec![("Content-Type".to_string(), "text/plain".to_string())],
-        body: "Hello from Rust HTTP server!".to_string(),
+        headers,
+        body: "Hello from Rust HTTP server!".to_string()
     };
 
     // Send the response back to the client
