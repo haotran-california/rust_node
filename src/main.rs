@@ -33,7 +33,7 @@ async fn main() {
     let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/examples/07.txt"; 
+    let filepath: &str = "src/examples/08.txt"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -54,6 +54,7 @@ async fn main() {
     let (tx_http, mut rx_http) = tokio::sync::mpsc::unbounded_channel::<interface::Operations>();
     assign_tx_to_global(scope, &tx_http, "http");
 
+    //Http Operations
     assign_callback_to_global(scope, "createServer", http::create_server_callback);
     assign_callback_to_global(scope, "get", http::get_callback);
     assign_callback_to_global(scope, "request", http::create_request_callback);
@@ -204,7 +205,7 @@ async fn main() {
                                 }
 
                                 interface::HttpOperation::Request(socket, callback, channel) => {
-
+                                    println!("Inside .request for event loop");
 
 
                                 }

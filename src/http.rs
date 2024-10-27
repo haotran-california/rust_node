@@ -12,6 +12,8 @@ use crate::net::Request;
 use crate::net::Response;
 use crate::net::send_response;
 use crate::net::create_request_object; 
+use std::net::TcpStream;
+use std::io::{self, Read, Write};
 
 pub fn create_server_callback(
     scope: &mut v8::HandleScope,
@@ -155,9 +157,8 @@ pub fn create_request_callback(
 
     let raw_ptr = retrieve_tx(scope, "http").unwrap(); // Assuming this function returns the channel sender
     let tx = unsafe { &*raw_ptr };
-    let (oneshot_tx, oneshot_rx) = oneshot::channel();
 
-    let full_url = format!("{}{}", hostname, path); // Construct the full URL once
+    let full_url = format!("http://{}:{}{}", hostname, port, path); // Construct the full URL once
     let port: u16 = port.parse().unwrap(); // Parse the port once
 
     let request = Box::new(Request {
@@ -169,75 +170,22 @@ pub fn create_request_callback(
 
     // Spawn the async task to handle the connection
     let hostname_clone = hostname.clone(); // Only clone once here
-    tokio::task::spawn_local(async move {
-        match tokio::net::TcpStream::connect((hostname_clone.as_str(), port)).await {
-            Ok(socket) => {
-                // Send the result back through the oneshot channel
-                let _ = oneshot_tx.send(Ok(socket));
-            }
-            Err(e) => {
-                // Send the error back through the oneshot channel
-                let _ = oneshot_tx.send(Err(e));
-            }
-        }
-    });
 
-    // Receive the result synchronously using `rx`
-    if let Ok(result) = oneshot_rx.blocking_recv() {
-        match result {
-            Ok(mut socket) => {
-                // Now create the request object synchronously using `scope` and `rv`
-                let boxed_socket = Box::new(socket);
-                let request_obj = create_request_object(scope, request, boxed_socket);
-                let request_value: v8::Local<v8::Value> = request_obj.into();
-                rv.set(request_value.into());
-            }
-            Err(e) => {
-                eprintln!("Failed to connect to {}:{} - {}", hostname, port, e);
-            }
+    // Perform the TCP connection synchronously
+    match std::net::TcpStream::connect((hostname.as_str(), port)) {
+        Ok(socket) => {
+            let tokio_socket = tokio::net::TcpStream::from_std(socket).unwrap();
+
+            let boxed_socket = Box::new(tokio_socket);
+            let request_obj = create_request_object(scope, request, boxed_socket);
+            let request_value: v8::Local<v8::Value> = request_obj.into();
+            rv.set(request_value.into());
+        }
+        Err(e) => {
+            eprintln!("Failed to connect to {}:{} - {}", hostname, port, e);
         }
     }
-
-    // let shared_http_request = Arc::new(Mutex::new(Response {
-    //     method: String::new(),                    
-    //     url: String::new(),                       
-    //     headers: HashMap<String, String>,    
-    //     body: new(),    
-    // }));
     
-    // let shared_http_request_clone = Arc::clone(&request);
-    // let (oneshot_tx, oneshot_rx) = oneshot::channel::<Box<Request>>();
-
-    // tokio::task::spawn_local(async move {
-    //     // Connect to the server and send the HTTP GET request
-    //     match tokio::net::TcpStream::connect((hostname, port)).await {
-    //         Ok(mut socket) => {
-    //             // Connection successful, send the HTTP GET request
-    //             let request = format!("{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", method, path, hostname);
-    //             if let Err(e) = socket.write_all(request.as_bytes()).await {
-    //                 eprintln!("Failed to send HTTP request: {}", e);
-    //                 return;
-    //             }
-
-    //             // Handle the HTTP operation with the channel transmitter
-    //             let http_operation = Operations::Http(HttpOperation::Request(socket, js_callback_global, oneshot_tx));
-    //             tx.send(http_operation);
-    //         }
-    //         Err(e) => {
-    //             // Connection failed, print an error message
-    //             eprintln!("Failed to connect to {}:{} - {}", hostname, port, e);
-    //         }
-    //     }
-
-
-    // });
-
-    // tokio::task::spawn_local(async move {
-    //     if let Ok(boxed_req) = rx.await {
-    //         let unboxed_req: Request = *boxed_req;
-    //         rv.set(unboxed_req.into());
-    //     }
-    // })
 }
 pub fn http_server_listen_callback(
     scope: &mut v8::HandleScope,
