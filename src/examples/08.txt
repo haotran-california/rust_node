@@ -15,4 +15,4 @@ const req = request(options, (res) => {
 });
 
 console.log("Method: " + req.method())
-//req.end();
+req.end();

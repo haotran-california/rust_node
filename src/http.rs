@@ -10,7 +10,6 @@ use crate::interface::Operations;
 use crate::interface::HttpOperation;
 use crate::net::Request; 
 use crate::net::Response;
-use crate::net::send_response;
 use crate::net::create_request_object; 
 use std::net::TcpStream;
 use std::io::{self, Read, Write};
@@ -156,7 +155,7 @@ pub fn create_request_callback(
     }
 
     let raw_ptr = retrieve_tx(scope, "http").unwrap(); // Assuming this function returns the channel sender
-    let tx = unsafe { &*raw_ptr };
+    let tx = unsafe { &*raw_ptr }.clone();
 
     let full_url = format!("http://{}:{}{}", hostname, port, path); // Construct the full URL once
     let port: u16 = port.parse().unwrap(); // Parse the port once
@@ -166,6 +165,7 @@ pub fn create_request_callback(
         url: full_url,
         headers: headers_map,
         body: String::new(),
+        tx_request: Some(tx)
     });
 
     // Spawn the async task to handle the connection
@@ -177,7 +177,7 @@ pub fn create_request_callback(
             let tokio_socket = tokio::net::TcpStream::from_std(socket).unwrap();
 
             let boxed_socket = Box::new(tokio_socket);
-            let request_obj = create_request_object(scope, request, boxed_socket);
+            let request_obj = create_request_object(scope, request, boxed_socket, Some(js_callback_global));
             let request_value: v8::Local<v8::Value> = request_obj.into();
             rv.set(request_value.into());
         }
@@ -321,6 +321,7 @@ pub fn request_headers_callback(
     // Return the JavaScript object with the headers
     rv.set(js_headers.into());
 }
+
 pub fn request_end_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -330,11 +331,19 @@ pub fn request_end_callback(
     let js_response_obj = args.this();
 
     // Get the internal field (the Rust Response struct)
-    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
-    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
-
-    // Cast the external pointer back to the Rust Response object
+    let internal_field_response = js_response_obj.get_internal_field(scope, 0).unwrap();
+    let external_response = v8::Local::<v8::External>::try_from(internal_field_response).unwrap();
     let response_ptr = unsafe { &mut *(external_response.value() as *mut Response) };
+
+    // Get the internal field (the Tokio TcpStream Socket)
+    let internal_field_socket = js_response_obj.get_internal_field(scope, 1).unwrap();
+    let external_socket = v8::Local::<v8::External>::try_from(internal_field_socket).unwrap();
+    let socket_ptr = unsafe { external_socket.value() as *mut tokio::net::TcpStream };
+
+    // Get the internal field (the V8 callback)
+    let internal_field_callback = js_response_obj.get_internal_field(scope, 2).unwrap();
+    let external_callback = v8::Local::<v8::External>::try_from(internal_field_callback).unwrap();
+    let callback_ptr = unsafe { external_callback.value() as *mut v8::Function };
 
     // Optional: Get the final data to be appended to the body (if provided)
     let mut final_chunk = String::from("");
@@ -342,17 +351,13 @@ pub fn request_end_callback(
         final_chunk = args.get(0).to_rust_string_lossy(scope);
     }
 
-    // Get the internal field (the Tokio TcpStream Socket)
-    let internal_field_socket = js_response_obj.get_internal_field(scope, 1).unwrap();
-    let external_socket = v8::Local::<v8::External>::try_from(internal_field_socket).unwrap();
-    let socket_ptr = unsafe { external_socket.value() as *mut tokio::net::TcpStream };
-
     tokio::task::spawn_local(async move {
         let socket = unsafe { &mut *socket_ptr };
         let response = unsafe { &mut *response_ptr };
+        //This might not work here
+        let callback_ptr = unsafe { &mut *callback_ptr };
 
         response.end(socket, Some(final_chunk)).await;
-        //send_response(socket, response);
     });
 
     rv.set(v8::undefined(scope).into());

@@ -31,6 +31,6 @@ pub enum FsOperation {
 
 pub enum HttpOperation {
     Get(tokio::net::TcpStream, v8::Global<v8::Function>),
-    Request(tokio::net::TcpStream, v8::Global<v8::Function>, tokio::sync::oneshot::Sender<Request>),
+    Request(tokio::net::TcpStream, v8::Global<v8::Function>),
     Listen(tokio::net::TcpStream, v8::Global<v8::Function>)
 }

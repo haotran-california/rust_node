@@ -150,51 +150,18 @@ async fn main() {
 
                                 interface::HttpOperation::Get(mut socket, callback) => {
                                     //parse response into object from socket
-                                    let mut response_data = String::new();
-                                    if let Err(e) = socket.read_to_string(&mut response_data).await {
-                                        eprintln!("Failed to read response from socket: {}", e);
-                                        return;
-                                    }
-                                    println!("Response Data: {}", response_data);
-                                
-                                    // Prepare to parse with httparse
-                                    let mut headers = [httparse::EMPTY_HEADER; 32]; // Fixed-size buffer for headers
-                                    let mut http_parse_response = httparse::Response::new(&mut headers);
-
-                                    let response_data_bytes = response_data.as_bytes();
-                                    let parsed_len = match http_parse_response.parse(response_data_bytes) {
-                                        Ok(httparse::Status::Complete(len)) => len,
-                                        Ok(httparse::Status::Partial) => {
-                                            eprintln!("Incomplete HTTP response");
-                                            return;
-                                        }
+                                    let response = match parse_http_response(&mut socket).await{
+                                        Ok(response) => response, 
                                         Err(e) => {
                                             eprintln!("Failed to parse HTTP response: {}", e);
                                             return;
                                         }
                                     };
 
-                                    // Get the status code
-                                    let status_code = http_parse_response.code.unwrap_or(400);
-
-
-                                    let response_headers_vec: Vec<(String, String)> = http_parse_response.headers.iter().map(|h| {
-                                        (h.name.to_string(), String::from_utf8_lossy(h.value).to_string())
-                                    }).collect();
-                                    let response_headers: HashMap<String, String> = response_headers_vec.into_iter().collect();
-
-                                    // Extract the body from the remaining bytes
-                                    let body = String::from_utf8_lossy(&response_data_bytes[parsed_len..]).to_string();
-
-                                    let response = Box::new(Response {
-                                        status_code, 
-                                        headers: response_headers, 
-                                        body
-                                    });
-
+                                    let boxed_response = Box::new(response);
                                     let boxed_socket = Box::new(socket);
 
-                                    let response_obj = create_response_object(scope, response, boxed_socket);
+                                    let response_obj = create_response_object(scope, boxed_response, boxed_socket);
                                     let response_value: v8::Local<v8::Value> = response_obj.into();
 
                                     let args = vec![response_value];
@@ -204,10 +171,28 @@ async fn main() {
                                     callback.call(scope, undefined, &args).unwrap();
                                 }
 
-                                interface::HttpOperation::Request(socket, callback, channel) => {
+                                interface::HttpOperation::Request(mut socket, callback) => {
                                     println!("Inside .request for event loop");
 
+                                    let response = match parse_http_response(&mut socket).await{
+                                        Ok(response) => response, 
+                                        Err(e) => {
+                                            eprintln!("Failed to parse HTTP response: {}", e);
+                                            return;
+                                        }
+                                    };
 
+                                    let boxed_response = Box::new(response);
+                                    let boxed_socket = Box::new(socket);
+
+                                    let response_obj = create_response_object(scope, boxed_response, boxed_socket);
+                                    let response_value: v8::Local<v8::Value> = response_obj.into();
+
+                                    let args = vec![response_value];
+                                    
+                                    let undefined = v8::undefined(scope).into();
+                                    let callback = callback.open(scope);
+                                    callback.call(scope, undefined, &args).unwrap();
                                 }
 
                             } 
@@ -382,6 +367,50 @@ pub fn assign_tx_to_global(
 
     let key = v8::String::new(scope, channel_name).unwrap();
     global.set(scope, key.into(), obj.into());
+}
+
+pub async fn parse_http_response(
+    socket: &mut tokio::net::TcpStream,
+) -> Result<Response, Box<dyn std::error::Error>> {
+    let mut response_data = String::new();
+
+    // Read data from the socket into response_data
+    socket.read_to_string(&mut response_data).await?;
+
+    // Prepare to parse with httparse
+    let mut headers = [httparse::EMPTY_HEADER; 32]; // Fixed-size buffer for headers
+    let mut http_parse_response = httparse::Response::new(&mut headers);
+
+    let response_data_bytes = response_data.as_bytes();
+    let parsed_len = match http_parse_response.parse(response_data_bytes)? {
+        httparse::Status::Complete(len) => len,
+        httparse::Status::Partial => {
+            return Err("Incomplete HTTP response".into());
+        }
+    };
+
+    // Get the status code
+    let status_code = http_parse_response.code.ok_or("Missing status code")?;
+
+    // Convert headers to a HashMap<String, String>
+    let headers_map: HashMap<String, String> = http_parse_response.headers.iter().map(|h| {
+        (
+            h.name.to_string(),
+            String::from_utf8_lossy(h.value).to_string(),
+        )
+    }).collect();
+
+    // Extract the body from the remaining bytes
+    let body = String::from_utf8_lossy(&response_data_bytes[parsed_len..]).to_string();
+
+    // Construct the Response object
+    let response = Response {
+        status_code,
+        headers: headers_map,
+        body,
+    };
+
+    Ok(response)
 }
 
 // pub fn retrieve_global_object<'s>(
