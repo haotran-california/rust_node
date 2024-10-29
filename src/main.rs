@@ -181,6 +181,7 @@ async fn main() {
                                             return;
                                         }
                                     };
+                                    println!("Checkpoint: Event loop has parsed callback");
 
                                     let boxed_response = Box::new(response);
                                     let boxed_socket = Box::new(socket);

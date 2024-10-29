@@ -73,6 +73,7 @@ impl Request {
             println!("Error stream pointer is null");
         }
         // Convert raw pointer to mutable reference
+        println!("Checkpoint before stream pointer is dereferenced");
         let stream = unsafe { &mut *stream_ptr };
 
         // Append any additional data to the body
@@ -112,7 +113,9 @@ impl Request {
         }
 
         // Convert the mutable reference `stream` back to an owned `TcpStream`
+        println!("Checkpoint: Before Req.end() successful preformed stream/pointer conversion");
         let owned_stream = unsafe { Box::from_raw(stream_ptr) };
+        println!("Checkpoint: Req.end() successful preformed stream/pointer conversion");
 
         if let Some(tx) = &self.tx_request {
             // Send the `HttpOperation::Request` using the owned `TcpStream`

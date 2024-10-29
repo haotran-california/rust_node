@@ -333,7 +333,7 @@ pub fn request_end_callback(
     // Get the internal field (the Rust Response struct)
     let internal_field_response = js_response_obj.get_internal_field(scope, 0).unwrap();
     let external_response = v8::Local::<v8::External>::try_from(internal_field_response).unwrap();
-    let response_ptr = unsafe { &mut *(external_response.value() as *mut Response) };
+    let request_ptr = unsafe { &mut *(external_response.value() as *mut Request) };
 
     // Get the internal field (the Tokio TcpStream Socket)
     let internal_field_socket = js_response_obj.get_internal_field(scope, 1).unwrap();
@@ -343,7 +343,7 @@ pub fn request_end_callback(
     // Get the internal field (the V8 callback)
     let internal_field_callback = js_response_obj.get_internal_field(scope, 2).unwrap();
     let external_callback = v8::Local::<v8::External>::try_from(internal_field_callback).unwrap();
-    let callback_ptr = unsafe { external_callback.value() as *mut v8::Function };
+    let callback_ptr = unsafe { external_callback.value() as *mut v8::Global<v8::Function> };
 
     // Optional: Get the final data to be appended to the body (if provided)
     let mut final_chunk = String::from("");
@@ -353,11 +353,12 @@ pub fn request_end_callback(
 
     tokio::task::spawn_local(async move {
         let socket = unsafe { &mut *socket_ptr };
-        let response = unsafe { &mut *response_ptr };
+        let request = unsafe { &mut *request_ptr };
         //This might not work here
-        let callback_ptr = unsafe { &mut *callback_ptr };
+        let callback = unsafe { &*callback_ptr };
+        request.end(socket, Some(final_chunk), callback.clone()).await;
+        println!("Checkpoint: req.end() is done");
 
-        response.end(socket, Some(final_chunk)).await;
     });
 
     rv.set(v8::undefined(scope).into());
