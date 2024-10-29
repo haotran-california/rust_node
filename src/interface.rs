@@ -18,15 +18,32 @@ pub enum TimerOperation {
 }
 
 pub enum FsOperation {
-    ReadFile {
+    // ReadFile {
+    //     callback: v8::Global<v8::Function>,
+    //     filename: v8::Global<v8::String>,
+    // },
+    // WriteFile {
+    //     callback: v8::Global<v8::Function>,
+    //     filename: v8::Global<v8::String>,
+    //     contents: v8::Global<v8::String>,
+    // }, 
+
+    ReadFileSuccess {
         callback: v8::Global<v8::Function>,
-        filename: v8::Global<v8::String>,
+        contents: String,
     },
-    WriteFile {
+    ReadFileError {
         callback: v8::Global<v8::Function>,
-        filename: v8::Global<v8::String>,
-        contents: v8::Global<v8::String>,
+        error_message: String,
     },
+    WriteFileSuccess {
+        callback: v8::Global<v8::Function>,
+    },
+    WriteFileError {
+        callback: v8::Global<v8::Function>,
+        error_message: String,
+    },
+
 }
 
 pub enum HttpOperation {

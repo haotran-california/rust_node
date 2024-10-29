@@ -1,6 +1,6 @@
-let filename = "temp_read_file.txt"
+let filename = "src/testing/temp_read_file.txt"
 
-readFile(filename, (err, data) =>{
+fs.readFile(filename, (err, data) =>{
     console.log("File Data: ")
     console.log(data)
 })

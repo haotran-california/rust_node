@@ -1,13 +1,14 @@
 use tokio::time::{sleep, Duration};
 use rusty_v8 as v8;
 use tokio; 
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::interface::Operations;
 use crate::interface::TimerOperation;
 use crate::helper::retrieve_tx; 
 
 pub struct Timer {
-    tx: tokio::sync::mpsc::UnboundedSender<Operations>,
+    tx: UnboundedSender<Operations>,
 }
 
 impl Timer {
@@ -44,7 +45,7 @@ pub fn set_timeout_callback(
     args: v8::FunctionCallbackArguments,
     _return_value: v8::ReturnValue,
 ) {
-    let timer = get_timer_instance(scope); // Assuming `get_timer_instance` provides access to the `Timer`
+    let timer = get_timer_instance(scope); 
 
     // Extract callback and delay
     let callback = args.get(0);
