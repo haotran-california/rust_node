@@ -33,7 +33,7 @@ async fn main() {
     let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/examples/08.txt"; 
+    let filepath: &str = "src/testing/03.js"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -61,7 +61,7 @@ async fn main() {
 
     //Timer Operations
     assign_callback_to_global(scope, "setTimeout", timer::set_timeout_callback);
-    assign_callback_to_global(scope, "setInternval", timer::set_interval_callback);
+    assign_callback_to_global(scope, "setInterval", timer::set_interval_callback);
 
     //File Operations
     assign_callback_to_global(scope, "readFile", fs::fs_read_file_callback);
