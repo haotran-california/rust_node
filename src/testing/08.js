@@ -9,10 +9,9 @@ const options = {
 };
 
 const req = request(options, (res) => {
-  //console.log('STATUS: ' + res.statusCode);
-  //console.log('HEADERS:' + JSON.stringify(res.headers));
+  console.log('STATUS: ' + res.statusCode);
+  console.log('HEADERS:' + JSON.stringify(res.headers));
   console.log("hello");
 });
 
-console.log("Method: " + req.method())
 req.end();

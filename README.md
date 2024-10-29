@@ -1,3 +1,8 @@
+# Project Summary
+
+This project is a tiny JavaScript runtime, directly inspired by Node.js. It is built in Rust and uses V8 Engine. 
+
+
 # API
 
 ### `console.log(arg)`
@@ -10,6 +15,7 @@
 - `callback` (Function) The function to be executed repeatedly at each interval.
 - `interval` (Number) The time, in milliseconds, between successive executions of the callback.
 
+## `FS`
 ### `fs.readFile(path, callback)`
 ### `fs.writeFile(path, data, callback)`
 ### Parameters:
@@ -19,8 +25,41 @@
   - `error` (String|Null): If an error occurs, this will contain the error message. Otherwise, it will be `null`.
   - `data` (String): The content of the file, returned as a string.
 
+## `HTTP`
 ### `http.createServer()`
-### `http.request()`
+  Returns: `Server`
+
+
+
+### `http.get(url, callback)`
+### `http.request(options, callback)`
+### Parameters:
+- `url` (String): The address to which the HTTP request is directed
+- `options` (Object): The configuration for an HTTP request containing the following properties: 
+  - `hostname` (String): The server's domain or IP address 
+  - `port` (Number): The port number to connect to on the server 
+  - `path` (String): The endpoint on the server for the request 
+  - `method` (String): The HTTP method to use 
+  - `headers` (Object): Optional, an object of request headers, with each key as a header name 
+
+### `Server`
+### Methods: 
+### `server.listen(port, hostname)`
+  - `port` (Number): The port number to connect to on the server 
+  - `hostname` (String): The server's domain or IP address 
+
+### `Request` 
+### Methods: 
+### `req.headers()`
+### `req.method()`
+### `req.url()`
+### `req.end()`
+
+### `Response` 
+### Methods: 
+### `req.setHeader()`
+### `req.statusCode()`
+### `req.end()`
 
 # Resources  
 Deno
