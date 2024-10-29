@@ -4,6 +4,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::io::AsyncReadExt;
 use std::ffi::c_void;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 //Declare internal modules 
 mod helper; 
@@ -33,7 +34,7 @@ async fn main() {
     let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/examples/08.txt"; 
+    let filepath: &str = "src/testing/04.js"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -43,29 +44,36 @@ async fn main() {
     };
     //println!("FILE CONTENTS: \n{}", &file_contents);
 
-    let console = v8::Object::new(scope);
-    let callback = console::console_log_callback; // Your existing console.log implementation
-    assign_callback_to_object(scope, console, "console", "log", callback);
-
-    //REFACTOR
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<interface::Operations>();
     assign_tx_to_global(scope, &tx, "channel");
 
     let (tx_http, mut rx_http) = tokio::sync::mpsc::unbounded_channel::<interface::Operations>();
     assign_tx_to_global(scope, &tx_http, "http");
 
+    //Console Operations
+    let console = v8::Object::new(scope);
+    let callback = console::console_log_callback; // Your existing console.log implementation
+    assign_callback_to_object(scope, console, "console", "log", callback);
+    
+    //Timer Operations
+    assign_callback_to_global(scope, "setTimeout", timer::set_timeout_callback);
+    assign_callback_to_global(scope, "setInterval", timer::set_interval_callback);
+
+    //File Operations
+    initialize_fs(scope, tx);
+
+    //Http Operations
+    //initialize_http(scope, tx);
+
     //Http Operations
     assign_callback_to_global(scope, "createServer", http::create_server_callback);
     assign_callback_to_global(scope, "get", http::get_callback);
     assign_callback_to_global(scope, "request", http::create_request_callback);
 
-    //Timer Operations
-    assign_callback_to_global(scope, "setTimeout", timer::set_timeout_callback);
-    assign_callback_to_global(scope, "setInternval", timer::set_interval_callback);
 
-    //File Operations
-    assign_callback_to_global(scope, "readFile", fs::fs_read_file_callback);
-    assign_callback_to_global(scope, "writeFile", fs::fs_write_file_callback);
+
+    // assign_callback_to_global(scope, "readFile", fs::fs_read_file_callback);
+    // assign_callback_to_global(scope, "writeFile", fs::fs_write_file_callback);
 
     // Run the event loop within the LocalSet
     let local = tokio::task::LocalSet::new();
@@ -228,62 +236,48 @@ async fn main() {
                             }
                        }
 
-                        // Handle FsOperation (ReadFile or WriteFile)
+                        // Handle FsOperation 
                         interface::Operations::Fs(fs_operation) => {
                             match fs_operation {
-                                interface::FsOperation::ReadFile { callback, filename } => {
-                                    let path_str = filename.open(scope).to_rust_string_lossy(scope);
-                                    let path = std::path::Path::new(&path_str);
-            
-                                    match tokio::fs::read(path).await {
-                                        Ok(contents) => {
-                                            // Convert the file contents to a V8 string
-                                            let contents_str = v8::String::new(scope, std::str::from_utf8(&contents).unwrap()).unwrap();
-                                            // Call the callback with the file contents
-                                            let null_value = v8::null(scope).into(); // No error
-                                            let args = &[null_value, contents_str.into()];
-                                            let callback = callback.open(scope);
-                                            let undefined = v8::undefined(scope).into();
-                                            callback.call(scope, undefined, args).unwrap();
-                                        }
-                                        Err(e) => {
-                                            // If there was an error reading the file, pass the error message to the callback
-                                            let error_message = v8::String::new(scope, &e.to_string()).unwrap();
-                                            let args = &[error_message.into(), v8::undefined(scope).into()];
-                                            let callback = callback.open(scope);
-                                            let undefined = v8::undefined(scope).into();
-                                            callback.call(scope, undefined, args).unwrap();
-                                        }
+                                    // Success for ReadFile
+                                    interface::FsOperation::ReadFileSuccess { callback, contents } => {
+                                        let undefined = v8::undefined(scope).into();
+                                        let contents = v8::String::new(scope, &contents).unwrap();
+                                        let null_value = v8::null(scope).into(); 
+                                        let args = &[null_value, contents.into()];
+                                        let callback_fn = callback.open(scope);
+                                        callback_fn.call(scope, undefined, args).unwrap();
+                                    }
+
+                                    // Error for ReadFile
+                                    interface::FsOperation::ReadFileError { callback, error_message } => {
+                                        let undefined = v8::undefined(scope).into();
+                                        let error_message = v8::String::new(scope, &error_message.to_string()).unwrap();
+                                        let args = &[error_message.into(), v8::undefined(scope).into()];
+                                        let callback_fn = callback.open(scope);
+                                        callback_fn.call(scope, undefined, args).unwrap();
+                                    }
+
+                                    // Success for WriteFile
+                                    interface::FsOperation::WriteFileSuccess { callback } => {
+                                        let undefined = v8::undefined(scope).into();
+                                        let null_value = v8::null(scope).into(); 
+                                        let args = &[null_value, undefined];
+                                        let callback_fn = callback.open(scope);
+                                        callback_fn.call(scope, undefined, args).unwrap();
+                                    }
+
+                                    // Error for WriteFile
+                                    interface::FsOperation::WriteFileError { callback, error_message } => {
+                                        let undefined = v8::undefined(scope).into();
+                                        let error_message = v8::String::new(scope, &error_message.to_string()).unwrap();
+                                        let args = &[error_message.into()];
+                                        let callback_fn = callback.open(scope);
+                                        callback_fn.call(scope, undefined, args).unwrap();
                                     }
                                 }
-            
-                                interface::FsOperation::WriteFile { callback, filename, contents } => {
-                                    let path_str = filename.open(scope).to_rust_string_lossy(scope);
-                                    let contents_str = contents.open(scope).to_rust_string_lossy(scope);
-                                    let path = std::path::Path::new(&path_str);
-                                    let undefined_value = v8::undefined(scope).into();
-            
-                                    match tokio::fs::write(path, contents_str).await {
-                                        Ok(_) => {
-                                            // Success: Call the callback with null (no error) and undefined
-                                            let null_value = v8::null(scope).into();
-                                            let args = &[null_value, undefined_value];
-                                            let callback = callback.open(scope);
-                                            callback.call(scope, undefined_value, args).unwrap();
-                                        }
-                                        Err(e) => {
-                                            // Error: Call the callback with the error message
-                                            let error_message = v8::String::new(scope, &e.to_string()).unwrap();
-                                            let args = &[error_message.into(), v8::undefined(scope).into()];
-                                            let callback = callback.open(scope);
-                                            callback.call(scope, undefined_value, args).unwrap();
-                                        }
-                                    }
-                                }
-
-
                             }
-                        }
+                        
 
                         //Handle Erronous Case
                         interface::Operations::Http(http_ops) => {
@@ -438,5 +432,39 @@ pub async fn parse_http_response(
 //     }
 // }
 
+pub fn initialize_fs(
+    scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>,
+    tx: UnboundedSender<interface::Operations>
+){
+    let fs_template = v8::ObjectTemplate::new(scope);
+    fs_template.set_internal_field_count(2); // Store the Rust Response struct and socket internally
+    let fs_obj = fs_template.new_instance(scope).unwrap();
 
+    let read_file_fn_template = v8::FunctionTemplate::new(scope, fs::fs_read_file_callback);
+    let write_file_fn_template = v8::FunctionTemplate::new(scope, fs::fs_write_file_callback);
+
+    let read_file_fn = read_file_fn_template.get_function(scope).unwrap();
+    let write_file_fn = write_file_fn_template.get_function(scope).unwrap();
+
+    let read_file_key = v8::String::new(scope, "readFile").unwrap();
+    let write_file_key = v8::String::new(scope, "writeFile").unwrap();
+
+    fs_obj.set(scope, read_file_key.into(), read_file_fn.into());
+    fs_obj.set(scope, write_file_key.into(), write_file_fn.into());
+
+    let emptyPath = PathBuf::new();
+    let file = fs::File::new(emptyPath, tx.clone());
+
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+    let global_key = v8::String::new(scope, "fs").unwrap();
+
+    // Create a Rust File object and wrap it in External
+    let boxed_file = Box::new(file);
+    let external_fs = v8::External::new(scope, Box::into_raw(boxed_file) as *const _ as *mut c_void);
+
+    // Set the Rust Response object as an internal field of the JS object
+    fs_obj.set_internal_field(0, external_fs.into());
+    global.set(scope, global_key.into(), fs_obj.into());
+}
 

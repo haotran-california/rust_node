@@ -27,9 +27,7 @@ This project is a tiny JavaScript runtime, directly inspired by Node.js. It is b
 
 ## `HTTP`
 ### `http.createServer()`
-  Returns: `Server`
-
-
+  Returns (Object): `Server`
 
 ### `http.get(url, callback)`
 ### `http.request(options, callback)`
@@ -42,20 +40,22 @@ This project is a tiny JavaScript runtime, directly inspired by Node.js. It is b
   - `method` (String): The HTTP method to use 
   - `headers` (Object): Optional, an object of request headers, with each key as a header name 
 
-### `Server`
-### Methods: 
+### `SERVER`
 ### `server.listen(port, hostname)`
+### Parameters:
   - `port` (Number): The port number to connect to on the server 
   - `hostname` (String): The server's domain or IP address 
 
-### `Request` 
-### Methods: 
+### `REQUEST` 
 ### `req.headers()`
+  Returns (HashMap<String, String>): 
 ### `req.method()`
+  Returns (String): each entry consists of a header key pair value where the name of the header is the key and the value is the corresponding value
 ### `req.url()`
+  Returns (String): the HTP method used for the request 
 ### `req.end()`
 
-### `Response` 
+### `RESPONSE` 
 ### Methods: 
 ### `req.setHeader()`
 ### `req.statusCode()`

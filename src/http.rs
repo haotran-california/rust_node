@@ -447,3 +447,43 @@ pub fn response_end_callback(
     rv.set(v8::undefined(scope).into());
 }
 
+pub fn response_on_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+){
+    // Retrieve the JS object (the "this" object in JavaScript)
+    let js_response_obj = args.this();
+
+    // Get the internal field (the Rust Response struct)
+    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
+    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Get the internal field (the Tokio TcpStream Socket)
+    let internal_field_socket = js_response_obj.get_internal_field(scope, 1).unwrap();
+    let external_socket = v8::Local::<v8::External>::try_from(internal_field_socket).unwrap();
+    let socket_ptr = unsafe { external_socket.value() as *mut tokio::net::TcpStream };
+
+    // Cast the external pointer back to the Rust Response object
+    let response_ptr = unsafe { &mut *(external_response.value() as *mut Response) };
+
+    // Parse event name
+    let event_name = args.get(0).to_rust_string_lossy(scope);
+
+    // Parse callback function
+    let js_callback = args.get(1);
+    let js_callback_function = v8::Local::<v8::Function>::try_from(js_callback).unwrap();
+    let js_callback_global = v8::Global::new(scope, js_callback_function);
+
+
+    // tokio::task::spawn_local(async move {
+    //     let socket = unsafe { &mut *socket_ptr };
+    //     let response = unsafe { &mut *response_ptr };
+
+    //     response.end(socket, Some(final_chunk)).await;
+    //     //send_response(socket, response);
+    // });
+
+    rv.set(v8::undefined(scope).into());
+}
+

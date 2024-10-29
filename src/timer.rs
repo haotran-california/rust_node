@@ -1,103 +1,90 @@
 use tokio::time::{sleep, Duration};
 use rusty_v8 as v8;
 use tokio; 
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::interface::Operations;
 use crate::interface::TimerOperation;
 use crate::helper::retrieve_tx; 
 
+pub struct Timer {
+    tx: UnboundedSender<Operations>,
+}
 
-// pub struct Timer<'s> {
-//     scope: &'s mut v8::ContextScope<'s, v8::HandleScope<'s>>,
-//     tx: UnboundedSender<TimerOperation> 
-// }
+impl Timer {
+    pub fn new(tx: tokio::sync::mpsc::UnboundedSender<Operations>) -> Self {
+        Timer { tx }
+    }
 
-// impl<'s> Timer<'s> {
-//     pub fn new(scope: &'s mut v8::ContextScope<'s, v8::HandleScope<'s>>, tx: UnboundedSender<TimerOperation>) -> Self {
-//         Self {
-//             scope,
-//             tx
-//         }
-//     }
-// }
+    pub fn set_timeout(&self, callback: v8::Global<v8::Function>, delay_ms: u64) {
+        let tx = self.tx.clone();
+        tokio::task::spawn_local(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+            if tx.send(Operations::Timer(TimerOperation::Timeout { callback })).is_err() {
+                eprintln!("Failed to send timeout operation.");
+            }
+        });
+    }
+
+    pub fn set_interval(&self, callback: v8::Global<v8::Function>, delay_ms: u64) {
+        let tx = self.tx.clone();
+        tokio::task::spawn_local(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                if tx.send(Operations::Timer(TimerOperation::Interval { callback: callback.clone() })).is_err() {
+                    eprintln!("Failed to send interval operation.");
+                    break;
+                }
+            }
+        });
+    }
+}
 
 pub fn set_timeout_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
-    _return_object: v8::ReturnValue
+    _return_value: v8::ReturnValue,
 ) {
-    let raw_ptr = retrieve_tx(scope, "channel").unwrap();
-    let tx = unsafe{ &* raw_ptr};
+    let timer = get_timer_instance(scope); 
 
-    // Extract arguments and validate them (this would be the JavaScript callback and delay)
+    // Extract callback and delay
     let callback = args.get(0);
     let delay = args.get(1);
-
-    if !callback.is_function() {
-        let exception = v8::String::new(scope, "First argument must be a function").unwrap();
-        scope.throw_exception(exception.into());
-        return;
-    }
 
     let callback_function = v8::Local::<v8::Function>::try_from(callback).unwrap();
     let persistent_callback = v8::Global::new(scope, callback_function);
 
-    let delay_ms = if delay.is_number() {
-        delay.number_value(scope).unwrap_or(0.0)
-    } else {
-        0.0
-    };
+    // Parse delay
+    let delay_ms = delay.number_value(scope).unwrap_or(0.0) as u64;
 
-    let timer_operation = TimerOperation::Timeout { 
-        callback: persistent_callback 
-    }; 
-    let wrap_ops = Operations::Timer(timer_operation);
-
-    // Schedule the callback using Tokio
-    tokio::task::spawn_local(async move {
-        sleep(Duration::from_millis(delay_ms as u64)).await; //non-blocking
-        tx.send(wrap_ops).unwrap();
-    });
+    // Delegate to Timer to handle async scheduling
+    timer.set_timeout(persistent_callback, delay_ms);
 }
 
 pub fn set_interval_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
-    _return_object: v8::ReturnValue
+    _return_value: v8::ReturnValue,
 ) {
-    let raw_ptr = retrieve_tx(scope, "channel").unwrap();
-    let tx = unsafe { &*raw_ptr };
+    let timer = get_timer_instance(scope); // Assuming `get_timer_instance` provides access to the `Timer`
 
-    // Extract arguments and validate them (this would be the JavaScript callback and delay)
+    // Extract callback and delay
     let callback = args.get(0);
     let delay = args.get(1);
-
-    if !callback.is_function() {
-        let exception = v8::String::new(scope, "First argument must be a function").unwrap();
-        scope.throw_exception(exception.into());
-        return;
-    }
 
     let callback_function = v8::Local::<v8::Function>::try_from(callback).unwrap();
     let persistent_callback = v8::Global::new(scope, callback_function);
 
-    let delay_ms = if delay.is_number() {
-        delay.number_value(scope).unwrap_or(0.0)
-    } else {
-        0.0
-    };
+    // Parse delay
+    let delay_ms = delay.number_value(scope).unwrap_or(0.0) as u64;
 
-    // Schedule the callback to be executed repeatedly using Tokio
-    tokio::task::spawn_local(async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms as u64)).await;
-            let persistent_callback_clone = persistent_callback.clone(); 
-            if tx.send(Operations::Timer(TimerOperation::Interval{callback: persistent_callback_clone})).is_err() {
-                break;
-            }
-        }
-    });
+    // Delegate to Timer to handle async scheduling
+    timer.set_interval(persistent_callback, delay_ms);
 }
 
-
-
+// Helper function to retrieve the Timer instance
+fn get_timer_instance(scope: &mut v8::HandleScope) -> Timer {
+    let raw_ptr = retrieve_tx(scope, "channel").unwrap();
+    let tx = unsafe { &*raw_ptr };
+    Timer::new(tx.clone())
+}
