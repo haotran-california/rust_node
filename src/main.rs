@@ -7,18 +7,23 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 //Declare internal modules 
-mod helper; 
 mod console; 
+mod timer;
 mod fs; 
-mod timer; 
-mod interface;
 mod http;
+mod request; 
+mod response;
+
+mod helper; 
+mod interface;
 mod net; 
 
-use crate::net::create_request_object;
-use crate::net::create_response_object;
-use crate::net::Request;
-use crate::net::Response; 
+use crate::request::create_request_object;
+use crate::request::Request;
+use crate::response::create_response_object;
+use crate::response::Response; 
+use crate::fs::initialize_fs;
+use crate::http::initialize_http;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -34,7 +39,7 @@ async fn main() {
     let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/testing/04.js"; 
+    let filepath: &str = "src/testing/08.js"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -63,12 +68,12 @@ async fn main() {
     initialize_fs(scope, tx);
 
     //Http Operations
-    //initialize_http(scope, tx);
+    initialize_http(scope, tx_http);
 
     //Http Operations
-    assign_callback_to_global(scope, "createServer", http::create_server_callback);
-    assign_callback_to_global(scope, "get", http::get_callback);
-    assign_callback_to_global(scope, "request", http::create_request_callback);
+    // assign_callback_to_global(scope, "createServer", http::create_server_callback);
+    // assign_callback_to_global(scope, "get", http::get_callback);
+    // assign_callback_to_global(scope, "request", http::create_request_callback);
 
 
 
@@ -432,39 +437,6 @@ pub async fn parse_http_response(
 //     }
 // }
 
-pub fn initialize_fs(
-    scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>,
-    tx: UnboundedSender<interface::Operations>
-){
-    let fs_template = v8::ObjectTemplate::new(scope);
-    fs_template.set_internal_field_count(2); // Store the Rust Response struct and socket internally
-    let fs_obj = fs_template.new_instance(scope).unwrap();
 
-    let read_file_fn_template = v8::FunctionTemplate::new(scope, fs::fs_read_file_callback);
-    let write_file_fn_template = v8::FunctionTemplate::new(scope, fs::fs_write_file_callback);
 
-    let read_file_fn = read_file_fn_template.get_function(scope).unwrap();
-    let write_file_fn = write_file_fn_template.get_function(scope).unwrap();
-
-    let read_file_key = v8::String::new(scope, "readFile").unwrap();
-    let write_file_key = v8::String::new(scope, "writeFile").unwrap();
-
-    fs_obj.set(scope, read_file_key.into(), read_file_fn.into());
-    fs_obj.set(scope, write_file_key.into(), write_file_fn.into());
-
-    let emptyPath = PathBuf::new();
-    let file = fs::File::new(emptyPath, tx.clone());
-
-    let context = scope.get_current_context();
-    let global = context.global(scope);
-    let global_key = v8::String::new(scope, "fs").unwrap();
-
-    // Create a Rust File object and wrap it in External
-    let boxed_file = Box::new(file);
-    let external_fs = v8::External::new(scope, Box::into_raw(boxed_file) as *const _ as *mut c_void);
-
-    // Set the Rust Response object as an internal field of the JS object
-    fs_obj.set_internal_field(0, external_fs.into());
-    global.set(scope, global_key.into(), fs_obj.into());
-}
 

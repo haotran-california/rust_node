@@ -1,6 +1,5 @@
 use rusty_v8 as v8; 
 use tokio;
-use crate::net::Request;
 
 pub enum Operations {
     Timer(TimerOperation),

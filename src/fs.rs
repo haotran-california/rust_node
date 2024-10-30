@@ -4,6 +4,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::ffi::c_void;
 
 use crate::interface::Operations;
 use crate::interface::FsOperation;
@@ -141,4 +142,40 @@ pub fn fs_write_file_callback(
 
     file_ptr.set_path(&path);
     file_ptr.write(contents, persistent_callback);
+}
+
+pub fn initialize_fs(
+    scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>,
+    tx: UnboundedSender<Operations>
+){
+    let fs_template = v8::ObjectTemplate::new(scope);
+    fs_template.set_internal_field_count(2); // Store the Rust Response struct and socket internally
+    let fs_obj = fs_template.new_instance(scope).unwrap();
+
+    let read_file_fn_template = v8::FunctionTemplate::new(scope, fs_read_file_callback);
+    let write_file_fn_template = v8::FunctionTemplate::new(scope, fs_write_file_callback);
+
+    let read_file_fn = read_file_fn_template.get_function(scope).unwrap();
+    let write_file_fn = write_file_fn_template.get_function(scope).unwrap();
+
+    let read_file_key = v8::String::new(scope, "readFile").unwrap();
+    let write_file_key = v8::String::new(scope, "writeFile").unwrap();
+
+    fs_obj.set(scope, read_file_key.into(), read_file_fn.into());
+    fs_obj.set(scope, write_file_key.into(), write_file_fn.into());
+
+    let empty_path = PathBuf::new();
+    let file = File::new(empty_path, tx.clone());
+
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+    let global_key = v8::String::new(scope, "fs").unwrap();
+
+    // Create a Rust File object and wrap it in External
+    let boxed_file = Box::new(file);
+    let external_fs = v8::External::new(scope, Box::into_raw(boxed_file) as *const _ as *mut c_void);
+
+    // Set the Rust Response object as an internal field of the JS object
+    fs_obj.set_internal_field(0, external_fs.into());
+    global.set(scope, global_key.into(), fs_obj.into());
 }

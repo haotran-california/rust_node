@@ -1,4 +1,4 @@
-const server = createServer((req, res) => {
+const server = http.createServer((req, res) => {
   console.log('Received a request!');
   console.log(req.method());
   console.log(req.url());
