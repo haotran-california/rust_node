@@ -3,6 +3,9 @@ use tokio;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::UnboundedSender;
+use std;
+use std::io;    
+use std::ffi::c_void;
 use std::collections::HashMap;
 use url::Url;
 
@@ -86,31 +89,37 @@ impl Http {
     }
 
     //add support for headers later...
-    pub fn request(&self, options: HashMap<String, String>, callback: v8::Global<v8::Function>) {
+    pub fn request(
+        &self, 
+        options: HashMap<String, String>, 
+        callback: v8::Global<v8::Function>
+    ) -> Option<(Request, std::net::TcpStream)> {
         let tx = self.tx.clone();
         let hostname = options.get("hostname").unwrap().to_string();
         let port = options.get("port").unwrap().parse::<u16>().unwrap_or(80);
         let method = options.get("method").unwrap_or(&"GET".to_string()).to_string();
         let path = options.get("path").unwrap().to_string();
-
         let headers: HashMap<String, String> = HashMap::new();
-        tokio::task::spawn_local(async move {
-            match tokio::net::TcpStream::connect((hostname.as_str(), port)).await {
-                Ok(socket) => {
-                    let request = Request {
-                        method,
-                        url: format!("{}{}", hostname, path),
-                        headers,
-                        body: String::new(),
-                        tx_request: Some(tx.clone()),
-                    };
 
-                    let http_operation = Operations::Http(HttpOperation::Request(socket, callback));
-                    tx.send(http_operation).unwrap();
-                }
-                Err(e) => eprintln!("Failed to connect to {}:{} - {}", hostname, port, e),
+        let request = Request {
+            method,
+            url: format!("{}{}", hostname, path),
+            headers,
+            body: String::new(),
+            tx_request: Some(tx.clone()),
+        };
+
+        match std::net::TcpStream::connect((hostname.as_str(), port)){
+            Ok(socket) => {
+                Some((request, socket))
             }
-        });
+
+            Err(e) => {
+                eprintln!("Failed to connect to {}:{} - {}", hostname, port, e);
+                None
+            }
+        }
+
     }
 }
 
@@ -140,7 +149,7 @@ pub fn create_server_callback(
 pub fn http_server_listen_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
-    _return_value: v8::ReturnValue,
+    rv : v8::ReturnValue,
 ) {
     // Retrieve pointer to Rust Http Struct
     let js_server_obj = args.this();
@@ -175,7 +184,7 @@ pub fn http_server_listen_callback(
 pub fn get_request_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
-    _return_value: v8::ReturnValue,
+    rv: v8::ReturnValue,
 ) {
     // Retrieve pointer to Rust Http Struct
     let js_http_obj = args.this();
@@ -197,7 +206,7 @@ pub fn get_request_callback(
 pub fn create_request_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
-    _return_value: v8::ReturnValue,
+    mut rv: v8::ReturnValue,
 ) {
     // Retrieve pointer to Rust Http Struct
     let js_http_obj = args.this();
@@ -223,20 +232,36 @@ pub fn create_request_callback(
         options.insert(key.to_string(), value);
     }
 
-    http_ptr.request(options, persistent_callback);
+    match http_ptr.request(options, persistent_callback.clone()) {
+        Some((request, socket)) => {
+            // Proceed if `request` was successful
+            let tokio_socket = tokio::net::TcpStream::from_std(socket).unwrap();
+            let boxed_socket = Box::new(tokio_socket);
+            let boxed_request = Box::new(request);
+            let request_obj = create_request_object(scope, boxed_request, boxed_socket, Some(persistent_callback));
+            rv.set(request_obj.into());
+        }
+        None => {
+            
+            // Optionally set the return value to undefined or a placeholder object
+            println!("Failed to return request object");
+            rv.set(v8::undefined(scope).into());
+        }
+    }
+
 }
 
 pub fn initialize_http(
     scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>,
-    tx: UnboundedSender<interface::Operations>
+    tx: UnboundedSender<Operations>
 ){
     let http_template = v8::ObjectTemplate::new(scope);
     http_template.set_internal_field_count(2); // Store the Rust Response struct and socket internally
     let http_obj = http_template.new_instance(scope).unwrap();
 
-    let create_server_template = v8::FunctionTemplate::new(scope, http::create_server_callback);
-    let get_template = v8::FunctionTemplate::new(scope, http::get_request_callback);
-    let request_template = v8::FunctionTemplate::new(scope, http::create_request_callback);
+    let create_server_template = v8::FunctionTemplate::new(scope, create_server_callback);
+    let get_template = v8::FunctionTemplate::new(scope, get_request_callback);
+    let request_template = v8::FunctionTemplate::new(scope, create_request_callback);
 
     let create_server_fn = create_server_template.get_function(scope).unwrap();
     let get_fn = get_template.get_function(scope).unwrap();
@@ -250,13 +275,12 @@ pub fn initialize_http(
     http_obj.set(scope, get_key.into(), get_fn.into());
     http_obj.set(scope, request_key.into(), request_fn.into());
 
-
     let context = scope.get_current_context();
     let global = context.global(scope);
     let global_key = v8::String::new(scope, "http").unwrap();
 
     // Create a Rust File object and wrap it in External
-    let http = http::Http::new(tx.clone());
+    let http = Http::new(tx.clone());
     let boxed_http = Box::new(http);
     let external_http = v8::External::new(scope, Box::into_raw(boxed_http) as *const _ as *mut c_void);
 

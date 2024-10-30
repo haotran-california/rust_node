@@ -4,6 +4,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::ffi::c_void;
 
 use crate::interface::Operations;
 use crate::interface::FsOperation;
@@ -145,14 +146,14 @@ pub fn fs_write_file_callback(
 
 pub fn initialize_fs(
     scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>,
-    tx: UnboundedSender<interface::Operations>
+    tx: UnboundedSender<Operations>
 ){
     let fs_template = v8::ObjectTemplate::new(scope);
     fs_template.set_internal_field_count(2); // Store the Rust Response struct and socket internally
     let fs_obj = fs_template.new_instance(scope).unwrap();
 
-    let read_file_fn_template = v8::FunctionTemplate::new(scope, fs::fs_read_file_callback);
-    let write_file_fn_template = v8::FunctionTemplate::new(scope, fs::fs_write_file_callback);
+    let read_file_fn_template = v8::FunctionTemplate::new(scope, fs_read_file_callback);
+    let write_file_fn_template = v8::FunctionTemplate::new(scope, fs_write_file_callback);
 
     let read_file_fn = read_file_fn_template.get_function(scope).unwrap();
     let write_file_fn = write_file_fn_template.get_function(scope).unwrap();
@@ -163,8 +164,8 @@ pub fn initialize_fs(
     fs_obj.set(scope, read_file_key.into(), read_file_fn.into());
     fs_obj.set(scope, write_file_key.into(), write_file_fn.into());
 
-    let emptyPath = PathBuf::new();
-    let file = fs::File::new(emptyPath, tx.clone());
+    let empty_path = PathBuf::new();
+    let file = File::new(empty_path, tx.clone());
 
     let context = scope.get_current_context();
     let global = context.global(scope);
