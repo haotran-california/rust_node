@@ -7,18 +7,21 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 //Declare internal modules 
-mod helper; 
 mod console; 
+mod timer;
 mod fs; 
-mod timer; 
-mod interface;
 mod http;
+mod request; 
+mod response;
+
+mod helper; 
+mod interface;
 mod net; 
 
-use crate::net::create_request_object;
-use crate::net::create_response_object;
-use crate::net::Request;
-use crate::net::Response; 
+use crate::request::create_request_object;
+use crate::response::create_response_object;
+use crate::request::Request;
+use crate::response::Response; 
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {

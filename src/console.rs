@@ -3,9 +3,9 @@ use rusty_v8 as v8;
 //How to make a callback function in V8? 
 //Arguements are automatically passed in callback functions, like React
 pub fn console_log_callback(
-handle_scope: &mut v8::HandleScope, 
-args: v8::FunctionCallbackArguments, 
-_return_object: v8::ReturnValue 
+    handle_scope: &mut v8::HandleScope, 
+    args: v8::FunctionCallbackArguments, 
+    _return_object: v8::ReturnValue 
 ){
 
     //convert from V8 string local handle to Rust String
