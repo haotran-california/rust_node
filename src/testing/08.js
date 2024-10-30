@@ -8,9 +8,7 @@ const options = {
   },
 };
 
-const req = request(options, (res) => {
-  console.log('STATUS: ' + res.statusCode);
-  console.log('HEADERS:' + JSON.stringify(res.headers));
+const req = http.request(options, (res) => {
   console.log("hello");
 });
 
