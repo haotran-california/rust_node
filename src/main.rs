@@ -13,6 +13,7 @@ mod fs;
 mod http;
 mod request; 
 mod response;
+mod emitter;
 
 mod helper; 
 mod interface;
@@ -24,6 +25,10 @@ use crate::response::create_response_object;
 use crate::response::Response; 
 use crate::fs::initialize_fs;
 use crate::http::initialize_http;
+use crate::http::incoming_message_on_callback;
+
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -39,7 +44,7 @@ async fn main() {
     let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/testing/08.js"; 
+    let filepath: &str = "src/testing/07.js"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -69,16 +74,6 @@ async fn main() {
 
     //Http Operations
     initialize_http(scope, tx_http);
-
-    //Http Operations
-    // assign_callback_to_global(scope, "createServer", http::create_server_callback);
-    // assign_callback_to_global(scope, "get", http::get_callback);
-    // assign_callback_to_global(scope, "request", http::create_request_callback);
-
-
-
-    // assign_callback_to_global(scope, "readFile", fs::fs_read_file_callback);
-    // assign_callback_to_global(scope, "writeFile", fs::fs_write_file_callback);
 
     // Run the event loop within the LocalSet
     let local = tokio::task::LocalSet::new();
@@ -161,7 +156,35 @@ async fn main() {
                                     // callback.call(scope, undefined, &args).unwrap();
                                 }
 
-                                interface::HttpOperation::Get(mut socket, callback) => {
+                                interface::HttpOperation::Get(res, callback) => {
+                                    //Create IncomingMessage (V8) Object
+                                    let mut incoming_message = res.lock().await;
+
+                                    let object_template = v8::ObjectTemplate::new(scope);
+                                    object_template.set_internal_field_count(1);
+                                    let incoming_message_obj = object_template.new_instance(scope).unwrap();
+
+                                    let on_fn_template = v8::FunctionTemplate::new(scope, incoming_message_on_callback);
+                                    let on_fn = on_fn_template.get_function(scope).unwrap();
+                                    let on_fn_key = v8::String::new(scope, "on").unwrap();
+                                    incoming_message_obj.set(scope, on_fn_key.into(), on_fn.into());
+
+                                    let boxed_incoming_message = Box::new(incoming_message);
+                                    let external_incoming_message = v8::External::new(scope, Box::into_raw(boxed_incoming_message) as *const _ as *mut c_void);
+                                    incoming_message_obj.set_internal_field(0, external_incoming_message.into());
+
+                                    let incoming_message_value: v8::Local<v8::Value> = incoming_message_obj.into();
+                                    let args = vec![incoming_message_value];
+                                    
+                                    let undefined = v8::undefined(scope).into();
+                                    let callback = callback.open(scope);
+                                    callback.call(scope, undefined, &args).unwrap();
+
+                                }
+
+                                interface::HttpOperation::Request(mut socket, callback) => {
+                                    println!("Inside .request for event loop");
+
                                     //parse response into object from socket
                                     let response = match parse_http_response(&mut socket).await{
                                         Ok(response) => response, 
@@ -182,38 +205,39 @@ async fn main() {
                                     let undefined = v8::undefined(scope).into();
                                     let callback = callback.open(scope);
                                     callback.call(scope, undefined, &args).unwrap();
+                                    println!("Finished calling the callback");
                                 }
-
-                                interface::HttpOperation::Request(mut socket, callback) => {
-                                    println!("Inside .request for event loop");
-
-                                    let response = match parse_http_response(&mut socket).await{
-                                        Ok(response) => response, 
-                                        Err(e) => {
-                                            eprintln!("Failed to parse HTTP response: {}", e);
-                                            return;
-                                        }
-                                    };
-                                    println!("Checkpoint: Event loop has parsed callback");
-
-                                    let boxed_response = Box::new(response);
-                                    let boxed_socket = Box::new(socket);
-
-                                    let response_obj = create_response_object(scope, boxed_response, boxed_socket);
-                                    let response_value: v8::Local<v8::Value> = response_obj.into();
-
-                                    let args = vec![response_value];
-                                    
-                                    let undefined = v8::undefined(scope).into();
-                                    let callback = callback.open(scope);
-                                    callback.call(scope, undefined, &args).unwrap();
-                                }
-
                             } 
                         }, 
 
-                        _ => {
-                            println!("Unhandled operation");
+                        interface::Operations::Response(response_op) => {
+                            match response_op {
+                                interface::ResponseEvent::Data{ res, chunk } => {
+                                    let mut incoming_message = res.lock().await;
+                                    let chunk_str = String::from_utf8_lossy(&chunk);
+                                    let chunk_value = v8::String::new(scope, &chunk_str).unwrap().into();
+                                    incoming_message.event_emitter.emit(scope, "data", &[chunk_value])
+                                },
+
+                                interface::ResponseEvent::End{ res } => {
+                                    let mut incoming_message = res.lock().await;
+                                    incoming_message.event_emitter.emit(scope, "end", &[])
+                                },
+
+                                interface::ResponseEvent::Error{ res, error_message } => {
+                                    let mut incoming_message = res.lock().await;
+                                    let error_value = v8::String::new(scope, &error_message).unwrap();
+                                    incoming_message.event_emitter.emit(scope, "error", &[error_value.into()])
+                                },
+                            }
+                        },
+
+                        interface::Operations::Timer(timer_op) => {
+                            continue;
+                        }
+
+                        interface::Operations::Fs(fs_op) => {
+                            continue;
                         }
                     }
                 }
@@ -286,6 +310,11 @@ async fn main() {
 
                         //Handle Erronous Case
                         interface::Operations::Http(http_ops) => {
+                            continue;
+                        }
+
+                        //Handle Erronous Case
+                        interface::Operations::Response(response_ops) => {
                             continue;
                         }
                     }
@@ -412,6 +441,7 @@ pub async fn parse_http_response(
 
     Ok(response)
 }
+
 
 // pub fn retrieve_global_object<'s>(
 //     scope: &mut v8::ContextScope<'s, v8::HandleScope<'_>>, 

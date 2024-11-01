@@ -1,6 +1,7 @@
 use rusty_v8 as v8;
 use tokio;
 use tokio::io::AsyncWriteExt;
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::UnboundedSender;
 use std;
@@ -9,10 +10,26 @@ use std::ffi::c_void;
 use std::collections::HashMap;
 use url::Url;
 
-use crate::interface::{HttpOperation, Operations};
+use crate::interface::{ResponseEvent, HttpOperation, Operations};
 use crate::request::create_request_object;
 use crate::request::Request;
+use crate::emitter::EventEmitter;
 use crate::helper::retrieve_tx;
+
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+pub struct IncomingMessage {
+    pub event_emitter: EventEmitter
+}
+
+impl IncomingMessage {
+    pub fn new() -> Self {
+        Self {
+            event_emitter: EventEmitter::new(),
+        }
+    }
+}
 
 pub struct Http {
     pub tx: UnboundedSender<Operations>,
@@ -20,7 +37,9 @@ pub struct Http {
 
 impl Http {
     pub fn new(tx: UnboundedSender<Operations>) -> Self {
-        Self { tx }
+        Self { 
+            tx,
+        }
     }
 
     pub fn listen(&self, host: String, port: u16, js_callback_global: v8::Global<v8::Function>) {
@@ -75,8 +94,49 @@ impl Http {
                                 eprintln!("Failed to send HTTP request: {}", e);
                                 return;
                             }
-                            let http_operation = Operations::Http(HttpOperation::Get(socket, callback));
+
+                            //Register the callback
+                            let incoming_message = Arc::new(Mutex::new(IncomingMessage::new()));
+                            let res = incoming_message.clone();
+
+                            let http_operation = Operations::Http(HttpOperation::Get(res, callback));
                             tx.send(http_operation).unwrap();
+                            //need to wait here until callback executes 
+
+
+                            //need to handle getting the headers here
+
+                            println!("Starting to read from the socket");
+                            //Read data from socket (on callback side)
+                            let mut buffer = [0u8, 255];
+                            loop{
+                                match socket.read(&mut buffer).await {
+                                    //EOF
+                                    Ok(0) => {
+                                        let res = incoming_message.clone();
+                                        let op = Operations::Response(ResponseEvent::End{ res }); 
+                                        tx.send(op);
+                                    }
+
+                                    //Data recieved
+                                    Ok(n) => {
+                                        let res = incoming_message.clone();
+                                        let chunk = buffer[..n].to_vec();
+                                        let op = Operations::Response(ResponseEvent::Data{ res, chunk }); 
+                                        tx.send(op);
+                                    }
+
+                                    //Error
+                                    Err(e) => {
+                                        eprintln!("Error reading from socket: {}", e);
+                                        let res = incoming_message.clone();
+                                        let error_message = e.to_string();
+                                        let op = Operations::Response(ResponseEvent::Error{ res, error_message });
+                                        tx.send(op);
+                                    }
+                                }
+                            }
+
                         }
                         Err(e) => {
                             eprintln!("Failed to connect to {}:{} - {}", hostname, port, e);
@@ -287,4 +347,29 @@ pub fn initialize_http(
     // Set the Rust Response object as an internal field of the JS object
     http_obj.set_internal_field(0, external_http.into());
     global.set(scope, global_key.into(), http_obj.into());
+}
+
+pub fn incoming_message_on_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    
+    // Retrieve the 'this' object
+    let js_response_obj = args.this();
+
+    // Get the internal field (the Rust Response struct)
+    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
+    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+    let incoming_message = unsafe { &mut *(external_response.value() as *mut IncomingMessage) };
+
+    // Parse arguements 
+    let event = args.get(0).to_rust_string_lossy(scope);
+    let callback = v8::Local::<v8::Function>::try_from(args.get(1)).unwrap();
+    let global_callback = v8::Global::new(scope, callback);
+
+    // Register the callback with the event emitter
+    incoming_message.event_emitter.on(event, global_callback);
+
+    rv.set(v8::undefined(scope).into())
 }

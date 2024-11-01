@@ -12,10 +12,13 @@ use std::ffi::c_void;
 use crate::interface::Operations; 
 use crate::interface::HttpOperation; 
 
+use crate::emitter::EventEmitter;
+
 pub struct Response {
     pub status_code: u16,                  
     pub headers: HashMap<String, String>,  
     pub body: String,                      
+    //event_emitter: EventEmitter,
 }
 
 
@@ -25,6 +28,7 @@ impl Response {
             status_code,
             headers,
             body,
+            //event_emitter: EventEmitter::new(), 
         }
     }
 
@@ -173,45 +177,29 @@ pub fn response_end_callback(
     rv.set(v8::undefined(scope).into());
 }
 
-pub fn response_on_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut rv: v8::ReturnValue,
-){
-    // Retrieve the JS object (the "this" object in JavaScript)
-    let js_response_obj = args.this();
+// pub fn response_on_callback(
+//     scope: &mut v8::HandleScope,
+//     args: v8::FunctionCallbackArguments,
+//     mut rv: v8::ReturnValue,
+// ){
+//     // Retrieve the 'this' object
+//     let js_response_obj = args.this();
 
-    // Get the internal field (the Rust Response struct)
-    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
-    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+//     // Get the internal field (the Rust Response struct)
+//     let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
+//     let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+//     let response = unsafe { &mut *(external_response.value() as *mut Response) };
 
-    // Get the internal field (the Tokio TcpStream Socket)
-    let internal_field_socket = js_response_obj.get_internal_field(scope, 1).unwrap();
-    let external_socket = v8::Local::<v8::External>::try_from(internal_field_socket).unwrap();
-    let socket_ptr = unsafe { external_socket.value() as *mut tokio::net::TcpStream };
+//     // Parse arguements 
+//     let event = args.get(0).to_rust_string_lossy(scope);
+//     let callback = v8::Local::<v8::Function>::try_from(args.get(1)).unwrap();
+//     let global_callback = v8::Global::new(scope, callback);
 
-    // Cast the external pointer back to the Rust Response object
-    let response_ptr = unsafe { &mut *(external_response.value() as *mut Response) };
+//     // Register the callback with the event emitter
+//     response.event_emitter.on(event, global_callback);
 
-    // Parse event name
-    let event_name = args.get(0).to_rust_string_lossy(scope);
-
-    // Parse callback function
-    let js_callback = args.get(1);
-    let js_callback_function = v8::Local::<v8::Function>::try_from(js_callback).unwrap();
-    let js_callback_global = v8::Global::new(scope, js_callback_function);
-
-
-    // tokio::task::spawn_local(async move {
-    //     let socket = unsafe { &mut *socket_ptr };
-    //     let response = unsafe { &mut *response_ptr };
-
-    //     response.end(socket, Some(final_chunk)).await;
-    //     //send_response(socket, response);
-    // });
-
-    rv.set(v8::undefined(scope).into());
-}
+//     rv.set(v8::undefined(scope).into());
+// }
 
 
 pub fn create_response_object<'s>(
@@ -226,18 +214,22 @@ pub fn create_response_object<'s>(
 
     let status_code_fn_template = v8::FunctionTemplate::new(scope, response_set_status_code_callback);
     let set_header_fn_template = v8::FunctionTemplate::new(scope, response_set_header_callback);
+    //let on_fn_template = v8::FunctionTemplate::new(scope, response_on_callback);
     let set_end_fn_template = v8::FunctionTemplate::new(scope, response_end_callback);
 
     let status_fn = status_code_fn_template.get_function(scope).unwrap();
     let set_header_fn = set_header_fn_template.get_function(scope).unwrap();
+    //let on_fn = on_fn_template.get_function(scope).unwrap();
     let end_fn = set_end_fn_template.get_function(scope).unwrap();
 
     let status_key = v8::String::new(scope, "statusCode").unwrap();
     let set_header_key = v8::String::new(scope, "setHeader").unwrap();
+    //let on_key = v8::String::new(scope, "on").unwrap();
     let end_key = v8::String::new(scope, "end").unwrap(); 
 
     response_obj.set(scope, status_key.into(), status_fn.into());
     response_obj.set(scope, set_header_key.into(), set_header_fn.into());
+    //response_obj.set(scope, on_key.into(), on_fn.into());
     response_obj.set(scope, end_key.into(), end_fn.into());
 
     // Create a Rust Response object and wrap it in External

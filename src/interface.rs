@@ -1,10 +1,15 @@
 use rusty_v8 as v8; 
 use tokio;
 
+use crate::http::IncomingMessage;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 pub enum Operations {
     Timer(TimerOperation),
     Fs(FsOperation),
-    Http(HttpOperation)
+    Http(HttpOperation),
+    Response(ResponseEvent)
 }
 
 pub enum TimerOperation {
@@ -17,16 +22,6 @@ pub enum TimerOperation {
 }
 
 pub enum FsOperation {
-    // ReadFile {
-    //     callback: v8::Global<v8::Function>,
-    //     filename: v8::Global<v8::String>,
-    // },
-    // WriteFile {
-    //     callback: v8::Global<v8::Function>,
-    //     filename: v8::Global<v8::String>,
-    //     contents: v8::Global<v8::String>,
-    // }, 
-
     ReadFileSuccess {
         callback: v8::Global<v8::Function>,
         contents: String,
@@ -46,7 +41,21 @@ pub enum FsOperation {
 }
 
 pub enum HttpOperation {
-    Get(tokio::net::TcpStream, v8::Global<v8::Function>),
+    Get(Arc<Mutex<IncomingMessage>>, v8::Global<v8::Function>),
     Request(tokio::net::TcpStream, v8::Global<v8::Function>),
     Listen(tokio::net::TcpStream, v8::Global<v8::Function>)
+}
+
+pub enum ResponseEvent {
+    Data {
+        res: Arc<Mutex<IncomingMessage>>, 
+        chunk: Vec<u8>,
+    },
+    End {
+        res: Arc<Mutex<IncomingMessage>>, 
+    },
+    Error {
+        res: Arc<Mutex<IncomingMessage>>, 
+        error_message: String,
+    },
 }
