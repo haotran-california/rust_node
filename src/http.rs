@@ -14,6 +14,7 @@ use crate::interface::{ResponseEvent, HttpOperation, Operations};
 use crate::request::create_request_object;
 use crate::request::Request;
 use crate::emitter::EventEmitter;
+use crate::helper::print_type_of;
 use crate::helper::retrieve_tx;
 
 use std::sync::Arc;
@@ -42,7 +43,7 @@ impl Http {
         }
     }
 
-    pub fn listen(&self, host: String, port: u16, js_callback_global: v8::Global<v8::Function>) {
+    pub fn server_listen(&self, host: String, port: u16, js_callback_global: v8::Global<v8::Function>) {
         let tx = self.tx.clone();
         
         tokio::task::spawn_local(async move {
@@ -57,10 +58,10 @@ impl Http {
 
             loop {
                 match listener.accept().await {
-                    Ok((socket, _)) => {
-                        let http_operation = Operations::Http(HttpOperation::Listen(socket, js_callback_global.clone()));
-                        if let Err(e) = tx.send(http_operation) {
-                            eprintln!("Failed to send socket to main event loop: {}", e);
+                    Ok((mut socket, _)) => {
+                        if let Some(req) = parse_http_request(&mut socket).await {
+                            let http_operation = Operations::Http(HttpOperation::Listen(req, socket, js_callback_global.clone()));
+                            tx.send(http_operation).unwrap();
                         }
                     }
                     Err(e) => {
@@ -189,11 +190,23 @@ pub fn create_server_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let server_obj = v8::Object::new(scope);
+    // Retrieve pointer to Rust Http Struct
+    let js_server_obj = args.this(); // we are in server object not http
+    let internal_field = js_server_obj.get_internal_field(scope, 0).unwrap();
+    let external_http = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+
+    // Parse Callback
     let js_callback = args.get(0);
     let js_callback_function = v8::Local::<v8::Function>::try_from(js_callback).unwrap();
 
-    // Store the server callback as requestHandler within the server object
+    let object_template = v8::ObjectTemplate::new(scope);
+    object_template.set_internal_field_count(1);
+    let server_obj = object_template.new_instance(scope).unwrap(); 
+
+    // Store Http within the server object
+    server_obj.set_internal_field(0, external_http.into());
+
+    // Store callback within the server object 
     let callback_key = v8::String::new(scope, "requestHandler").unwrap();
     server_obj.set(scope, callback_key.into(), js_callback.into());
 
@@ -211,8 +224,10 @@ pub fn http_server_listen_callback(
     args: v8::FunctionCallbackArguments,
     rv : v8::ReturnValue,
 ) {
-    // Retrieve pointer to Rust Http Struct
-    let js_server_obj = args.this();
+    // let raw_ptr = retrieve_tx(scope, "channel").unwrap();
+    // let tx = unsafe { &*raw_ptr };   // Retrieve pointer to Rust Http Struct
+
+    let js_server_obj = args.this(); // we are in server object not http
     let internal_field = js_server_obj.get_internal_field(scope, 0).unwrap();
     let external_http = v8::Local::<v8::External>::try_from(internal_field).unwrap();
     let http_ptr = unsafe { &*(external_http.value() as *mut Http) };
@@ -221,7 +236,7 @@ pub fn http_server_listen_callback(
     let callback_key = v8::String::new(scope, "requestHandler").unwrap();
     let callback_value = js_server_obj.get(scope, callback_key.into()).unwrap();
     let js_callback = v8::Local::<v8::Function>::try_from(callback_value).unwrap();
-    let js_callback_global = v8::Global::new(scope, js_callback);
+    let js_callback_global= v8::Global::new(scope, js_callback);
 
     // Parse arguements (with defaults) 
     let port = if args.length() > 0 && args.get(0).is_number() {
@@ -238,7 +253,8 @@ pub fn http_server_listen_callback(
 
 
     // Call the listen method on the Http instance
-    http_ptr.listen(host, port, js_callback_global);
+
+    http_ptr.server_listen(host, port, js_callback_global);
 }
 
 pub fn get_request_callback(
@@ -298,7 +314,7 @@ pub fn create_request_callback(
             let tokio_socket = tokio::net::TcpStream::from_std(socket).unwrap();
             let boxed_socket = Box::new(tokio_socket);
             let boxed_request = Box::new(request);
-            let request_obj = create_request_object(scope, boxed_request, boxed_socket, Some(persistent_callback));
+            let request_obj = create_request_object(scope, boxed_request, Some(boxed_socket), Some(persistent_callback));
             rv.set(request_obj.into());
         }
         None => {
@@ -316,7 +332,7 @@ pub fn initialize_http(
     tx: UnboundedSender<Operations>
 ){
     let http_template = v8::ObjectTemplate::new(scope);
-    http_template.set_internal_field_count(2); // Store the Rust Response struct and socket internally
+    http_template.set_internal_field_count(1); // Store the Rust Response struct and socket internally
     let http_obj = http_template.new_instance(scope).unwrap();
 
     let create_server_template = v8::FunctionTemplate::new(scope, create_server_callback);
@@ -372,4 +388,77 @@ pub fn incoming_message_on_callback(
     incoming_message.event_emitter.on(event, global_callback);
 
     rv.set(v8::undefined(scope).into())
+}
+
+pub async fn parse_http_request(socket: &mut TcpStream) -> Option<Request> {
+    let mut buffer = [0u8; 1024]; // A fixed size buffer for reading data
+    let mut raw_data = Vec::new();
+
+    // Read data from the socket into the buffer
+    match socket.read(&mut buffer).await {
+        Ok(n) if n > 0 => {
+            raw_data.extend_from_slice(&buffer[..n]); // Collect the data into raw_data
+        }
+        Ok(_) => {
+            println!("No data read from socket.");
+            return None;
+        }
+        Err(e) => {
+            println!("Failed to read from socket: {}", e);
+            return None;
+        }
+    }
+
+    let mut headers = [httparse::EMPTY_HEADER; 16]; // A fixed size buffer for headers
+    let mut req = httparse::Request::new(&mut headers);
+
+    match req.parse(&raw_data) {
+        Ok(status) => {
+            if status.is_partial() {
+                println!("Partial HTTP request. Waiting for more data.");
+                return None;
+            }
+
+            // Extract the method, path, and headers
+            let method = req.method.unwrap_or("").to_string();
+            let url = req.path.unwrap_or("").to_string();
+
+            let headers = req.headers.iter().fold(HashMap::new(), |mut map, header| {
+                map.insert(
+                    header.name.to_string(),
+                    std::str::from_utf8(header.value).unwrap_or("").to_string(),
+                );
+                map
+            });
+
+            // If there is a Content-Length header, use it to read the body
+            let body_offset = status.unwrap();
+            let body = if let Some(content_length) = headers.get("Content-Length") {
+                let length: usize = content_length.parse().unwrap_or(0);
+                if body_offset + length <= raw_data.len() {
+                    Some(
+                        std::str::from_utf8(&raw_data[body_offset..(body_offset + length)])
+                            .unwrap_or("")
+                            .to_string(),
+                    )
+                } else {
+                    None // Incomplete body
+                }
+            } else {
+                None // No body
+            };
+
+            Some(Request {
+                method,
+                url,
+                headers,
+                body: body.unwrap_or_default(),
+                tx_request: None,
+            })
+        }
+        Err(e) => {
+            println!("Error parsing HTTP request: {}", e);
+            None
+        }
+    }
 }

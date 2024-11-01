@@ -4,6 +4,7 @@ use tokio;
 use crate::http::IncomingMessage;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use crate::request::Request;
 
 pub enum Operations {
     Timer(TimerOperation),
@@ -43,7 +44,7 @@ pub enum FsOperation {
 pub enum HttpOperation {
     Get(Arc<Mutex<IncomingMessage>>, v8::Global<v8::Function>),
     Request(tokio::net::TcpStream, v8::Global<v8::Function>),
-    Listen(tokio::net::TcpStream, v8::Global<v8::Function>)
+    Listen(Request, tokio::net::TcpStream, v8::Global<v8::Function>)
 }
 
 pub enum ResponseEvent {

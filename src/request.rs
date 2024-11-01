@@ -223,7 +223,6 @@ pub fn request_end_callback(
         //This might not work here
         let callback = unsafe { &*callback_ptr };
         request.end(socket, Some(final_chunk), callback.clone()).await;
-        println!("Checkpoint: req.end() is done");
 
     });
 
@@ -233,7 +232,7 @@ pub fn request_end_callback(
 pub fn create_request_object<'s>(
     scope: &mut v8::HandleScope<'s>,
     request: Box<Request>, // Pass the Rust Request struct
-    socket: Box<tokio::net::TcpStream>,
+    optional_socket: Option<Box<tokio::net::TcpStream>>,
     optional_callback: Option<v8::Global<v8::Function>>
 ) -> v8::Local<'s, v8::Object> {
     // Create the Request object template
@@ -263,11 +262,14 @@ pub fn create_request_object<'s>(
     request_obj.set(scope, end_key.into(), end_fn.into());
 
     let external_request = v8::External::new(scope, Box::into_raw(request) as *const _ as *mut c_void);
-    let external_socket = v8::External::new(scope, Box::into_raw(socket) as *const _ as *mut c_void);
 
     // Set the Rust Request object as an internal field of the JS object
     request_obj.set_internal_field(0, external_request.into());
-    request_obj.set_internal_field(1, external_socket.into());
+
+    if let Some(boxed_socket) = optional_socket {
+        let external_callback = v8::External::new(scope, Box::into_raw(boxed_socket) as *const _ as *mut c_void);
+        request_obj.set_internal_field(1, external_callback.into());
+    }
 
     if let Some(callback) = optional_callback {
         let boxed_callback = Box::new(callback);
