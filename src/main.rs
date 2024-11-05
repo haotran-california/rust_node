@@ -2,6 +2,7 @@ use rusty_v8 as v8;
 use tokio; 
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::io::AsyncReadExt;
+use std::env; 
 use std::ffi::c_void;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -32,6 +33,26 @@ use std::sync::Mutex;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+
+    // READ FILE 
+    let args: Vec<String> = env::args().collect();
+    
+    if args.len() < 2 {
+        eprintln!("Usage: cargo run main <filename>");
+        return;
+    }
+
+    // Get the filename from the arguments
+    let filepath = &args[2];
+
+    let file_contents = match helper::read_file(filepath){
+        Ok(contents) => contents, 
+        Err (e) => {
+            eprintln!("ERROR: {}", e);
+            return; 
+        }
+    };
+
     //INITIALIZE V8
     let platform: v8::SharedRef<v8::Platform>  = v8::new_default_platform(0, false).make_shared();
     v8::V8::initialize_platform(platform);
@@ -42,17 +63,6 @@ async fn main() {
     let context = v8::Context::new(handle_scope); 
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
-
-    //READ FILE
-    let filepath: &str = "src/testing/07.js"; 
-    let file_contents = match helper::read_file(filepath){
-        Ok(contents) => contents, 
-        Err (e) => {
-            eprintln!("ERROR: {}", e);
-            return; 
-        }
-    };
-    //println!("FILE CONTENTS: \n{}", &file_contents);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<interface::Operations>();
     assign_tx_to_global(scope, &tx, "channel");
