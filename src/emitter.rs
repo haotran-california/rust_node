@@ -18,20 +18,18 @@ impl EventEmitter {
         event: String,
         callback: v8::Global<v8::Function>,
     ) {
-        self.listeners
-            .entry(event)
-            .or_insert_with(Vec::new)
-            .push(callback);
+        self.listeners.entry(event).or_insert_with(Vec::new).push(callback);
     }
 
     pub fn emit(
-        &self,
+        &mut self,
         scope: &mut v8::HandleScope,
-        event: &str,
+        event: String,
         args: &[v8::Local<v8::Value>],
     ) {
-        if let Some(callbacks) = self.listeners.get(event) {
-            for callback in callbacks {
+
+        if let Some(callbacks) = self.listeners.get_mut(&event) {
+            for callback in callbacks.drain(..) {
                 let local_cb = v8::Local::new(scope, callback);
                 let undefined = v8::undefined(scope).into();
                 local_cb.call(scope, undefined, args);

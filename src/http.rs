@@ -20,6 +20,7 @@ use crate::helper::retrieve_tx;
 
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::MutexGuard;
 
 pub struct IncomingMessage {
     pub event_emitter: EventEmitter
@@ -106,11 +107,10 @@ impl Http {
                             let http_operation = Operations::Http(HttpOperation::Get(res, callback, sender));
                             tx.send(http_operation).unwrap();
 
-                            //wait for onfirmation with oneshot channel
-                            //need to wait here until callback executes 
+                            //Blocking until outercallback has finished running
                             match receiver.await {
                                 Ok(value) => {
-                                    println!("We have completed the callback function");
+
                                 }
                                 Err(e) => {
                                     println!("Sender dropped");
@@ -122,7 +122,6 @@ impl Http {
                             //need to handle getting the headers here
 
                             println!("Starting to read from the socket");
-                            //Read data from socket (on callback side)
                             let mut buffer = [0u8, 255];
                             loop{
                                 match socket.read(&mut buffer).await {
@@ -131,6 +130,7 @@ impl Http {
                                         let res = incoming_message.clone();
                                         let op = Operations::Response(ResponseEvent::End{ res }); 
                                         tx.send(op);
+                                        break;
                                     }
 
                                     //Data recieved
@@ -384,34 +384,112 @@ pub fn incoming_message_on_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    println!("Incoming message on callback");
     // Retrieve the 'this' object
     let js_response_obj = args.this();
-
-    // Get the internal field (the Rust Response struct)
-    let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
-    let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
-    let incoming_message_ptr = external_response.value() as *const Mutex<IncomingMessage>;
-    let incoming_message: Arc<Mutex<IncomingMessage>> = unsafe { Arc::from_raw(incoming_message_ptr) };
-    let incoming_message_clone = incoming_message.clone();
-    // println!("Got message pointer");
-    // let incoming_message_ref = unsafe { &*incoming_message_ptr };
-    // println!("Got message ref");
-    // let incoming_message = Arc::clone(incoming_message_ref);
-    // println!("Cloned incoming message");
-
-
 
     // Parse arguements 
     let event = args.get(0).to_rust_string_lossy(scope);
     let callback = v8::Local::<v8::Function>::try_from(args.get(1)).unwrap();
-    let global_callback = v8::Global::new(scope, callback);
+    //let global_callback = v8::Global::new(scope, callback);
 
-    // Register the callback with the event emitter
-    let mut incoming_message_gaurd = incoming_message.lock().unwrap();
-    incoming_message_gaurd.event_emitter.on(event, global_callback);
+    queue_stream_event_in_object(scope, js_response_obj, &event.clone(), callback);
+    
+    if event == "end"{
+        // Get IncommingMessage object
+        let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
+        let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+        let incoming_message_ptr = external_response.value() as *const Mutex<IncomingMessage>;
+        let incoming_message: Arc<Mutex<IncomingMessage>> = unsafe { Arc::from_raw(incoming_message_ptr) };
+        let incoming_message_clone = incoming_message.clone();
+        let mut incoming_message_gaurd = incoming_message.lock().unwrap();
 
+        trigger_event_callbacks(scope, js_response_obj, incoming_message_gaurd);
+    }
+    
     rv.set(v8::undefined(scope).into())
+}
+
+pub fn trigger_event_callbacks(
+    scope: &mut v8::HandleScope,
+    js_response_obj: v8::Local<v8::Object>,
+    mut incoming_message: MutexGuard<'_, IncomingMessage> 
+) {
+    // Retrieve the "eventCallbacks" object from `this`
+    let event_callbacks_key = v8::String::new(scope, "eventCallbacks").unwrap();
+    let event_callbacks_value = js_response_obj.get(scope, event_callbacks_key.into()).unwrap();
+
+    if !event_callbacks_value.is_object() {
+        // If there is no "eventCallbacks" object, return early
+        return;
+    }
+
+    let event_callbacks_obj = event_callbacks_value.to_object(scope).unwrap();
+
+    // Convert the event name to a V8 string
+    let data_key = v8::String::new(scope, "data").unwrap();
+    let end_key = v8::String::new(scope, "end").unwrap();
+
+    let data_callbacks_array_value = event_callbacks_obj.get(scope, data_key.into()).unwrap();
+    let end_callbacks_array_value = event_callbacks_obj.get(scope, end_key.into()).unwrap();
+
+    let data_callbacks_array = v8::Local::<v8::Array>::try_from(data_callbacks_array_value).unwrap();
+    let end_callbacks_array = v8::Local::<v8::Array>::try_from(end_callbacks_array_value).unwrap();
+
+    let data_array_length = data_callbacks_array.length();
+    let end_array_length = end_callbacks_array.length();
+
+    // Iterate through the array of callbacks
+    for i in 0..data_array_length {
+        let callback_value = data_callbacks_array.get_index(scope, i).unwrap();
+        let callback_function = v8::Local::<v8::Function>::try_from(callback_value).unwrap();
+        let persistent_callback = v8::Global::new(scope, callback_function);
+        incoming_message.event_emitter.on("data".to_string(), persistent_callback);
+    }
+
+    for i in 0..end_array_length {
+        let callback_value = end_callbacks_array.get_index(scope, i).unwrap();
+        let callback_function = v8::Local::<v8::Function>::try_from(callback_value).unwrap();
+        let persistent_callback = v8::Global::new(scope, callback_function);
+        incoming_message.event_emitter.on("end".to_string(), persistent_callback);
+    }
+}
+
+pub fn queue_stream_event_in_object(
+    scope: &mut v8::HandleScope,
+    js_response_obj: v8::Local<v8::Object>,
+    event: &str,
+    local_callback: v8::Local<v8::Function>,
+) {
+    // Initialize or retrieve `this.eventCallbacks`
+    let event_callbacks_key = v8::String::new(scope, "eventCallbacks").unwrap();
+    let event_callbacks_value = js_response_obj.get(scope, event_callbacks_key.into()).unwrap();
+
+    let event_callbacks_obj = if event_callbacks_value.is_object() {
+        // Use the existing eventCallbacks object
+        event_callbacks_value.to_object(scope).unwrap()
+    } else {
+        // Create a new object if eventCallbacks is not already an object
+        let new_obj = v8::Object::new(scope);
+        js_response_obj.set(scope, event_callbacks_key.into(), new_obj.into());
+        new_obj
+    };
+
+    // Initialize or retrieve `this.eventCallbacks[event]`
+    let event_key = v8::String::new(scope, &event).unwrap();
+    let callbacks_array_value = event_callbacks_obj.get(scope, event_key.into()).unwrap();
+
+    let callbacks_array = v8::Local::<v8::Array>::try_from(callbacks_array_value)
+    .unwrap_or_else(|_| {
+        // Create a new array if the value is not already an array
+        let new_array = v8::Array::new(scope, 0);
+        event_callbacks_obj.set(scope, event_key.into(), new_array.into());
+        new_array
+    });
+
+    // Add the new callback to the array
+    let array_length = callbacks_array.length();
+    let array_length_value = v8::Number::new(scope, array_length as f64);
+    callbacks_array.set(scope, array_length_value.into(), local_callback.into());
 }
 
 pub async fn parse_http_request(socket: &mut TcpStream) -> Option<Request> {

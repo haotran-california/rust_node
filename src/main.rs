@@ -80,23 +80,6 @@ async fn main() {
 
     local.run_until(async move {
 
-        // //LOAD HTTP MODULE
-        // let module_filepath: &str = "src/http.js"; 
-        // let module_file_contents = match helper::read_file(module_filepath){
-        //     Ok(contents) => contents, 
-        //     Err (e) => {
-        //         eprintln!("ERROR: {}", e);
-        //         return; 
-        //     }
-        // };
-
-        // let code = v8::String::new(scope, &module_file_contents).unwrap();
-        // let script = v8::Script::compile(scope, code, None).unwrap();
-        // let result = script.run(scope).unwrap();
-
-        // let module_name = v8::String::new(scope, "http").unwrap();
-        // global.set(scope, module_name.into(), result.into());
-
         // Compile and execute the JavaScript code
         let code = v8::String::new(scope, &file_contents).unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
@@ -135,12 +118,9 @@ async fn main() {
                                 }
 
                                 interface::HttpOperation::Get(res, callback, tx) => {
-                                    //Create IncomingMessage (V8) Object
-                                    println!("EVENT LOOP: Inside Get Operation");
                                     //let mut incoming_message = res.lock().unwrap();
-
                                     let object_template = v8::ObjectTemplate::new(scope);
-                                    object_template.set_internal_field_count(1);
+                                    object_template.set_internal_field_count(2);
                                     let incoming_message_obj = object_template.new_instance(scope).unwrap();
 
                                     let on_fn_template = v8::FunctionTemplate::new(scope, incoming_message_on_callback);
@@ -162,8 +142,6 @@ async fn main() {
                                 }
 
                                 interface::HttpOperation::Request(mut socket, callback) => {
-                                    println!("Inside .request for event loop");
-
                                     //parse response into object from socket
                                     let response = match parse_http_response(&mut socket).await{
                                         Ok(response) => response, 
@@ -184,7 +162,6 @@ async fn main() {
                                     let undefined = v8::undefined(scope).into();
                                     let callback = callback.open(scope);
                                     callback.call(scope, undefined, &args).unwrap();
-                                    println!("Finished calling the callback");
                                 }
                             } 
                         }, 
@@ -192,24 +169,21 @@ async fn main() {
                         interface::Operations::Response(response_op) => {
                             match response_op {
                                 interface::ResponseEvent::Data{ res, chunk } => {
-                                    println!("Reached data response event channel");
                                     let mut incoming_message = res.lock().unwrap();
                                     let chunk_str = String::from_utf8_lossy(&chunk);
                                     let chunk_value = v8::String::new(scope, &chunk_str).unwrap().into();
-                                    incoming_message.event_emitter.emit(scope, "data", &[chunk_value])
+                                    incoming_message.event_emitter.emit(scope, "data".to_string(), &[chunk_value]);
                                 },
 
                                 interface::ResponseEvent::End{ res } => {
-                                    println!("Reached end response event channel");
                                     let mut incoming_message = res.lock().unwrap();
-                                    incoming_message.event_emitter.emit(scope, "end", &[])
+                                    incoming_message.event_emitter.emit(scope, "end".to_string(), &[])
                                 },
 
                                 interface::ResponseEvent::Error{ res, error_message } => {
-                                    println!("Reached error response event channel");
                                     let mut incoming_message = res.lock().unwrap();
                                     let error_value = v8::String::new(scope, &error_message).unwrap();
-                                    incoming_message.event_emitter.emit(scope, "error", &[error_value.into()])
+                                    incoming_message.event_emitter.emit(scope, "error".to_string(), &[error_value.into()])
                                 },
                             }
                         },
