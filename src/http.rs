@@ -1,5 +1,6 @@
 use rusty_v8 as v8;
 use tokio;
+use tokio::sync::oneshot;
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
@@ -18,7 +19,7 @@ use crate::helper::print_type_of;
 use crate::helper::retrieve_tx;
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 
 pub struct IncomingMessage {
     pub event_emitter: EventEmitter
@@ -99,11 +100,24 @@ impl Http {
                             //Register the callback
                             let incoming_message = Arc::new(Mutex::new(IncomingMessage::new()));
                             let res = incoming_message.clone();
+                            
+                            let (sender, receiver) = oneshot::channel::<bool>();
 
-                            let http_operation = Operations::Http(HttpOperation::Get(res, callback));
+                            let http_operation = Operations::Http(HttpOperation::Get(res, callback, sender));
                             tx.send(http_operation).unwrap();
-                            //need to wait here until callback executes 
 
+                            //wait for onfirmation with oneshot channel
+                            //need to wait here until callback executes 
+                            match receiver.await {
+                                Ok(value) => {
+                                    println!("We have completed the callback function");
+                                }
+                                Err(e) => {
+                                    println!("Sender dropped");
+                                    eprintln!("Failed to send HTTP request: {}", e);
+                                    return;
+                                }
+                            }
 
                             //need to handle getting the headers here
 
@@ -370,14 +384,23 @@ pub fn incoming_message_on_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    
+    println!("Incoming message on callback");
     // Retrieve the 'this' object
     let js_response_obj = args.this();
 
     // Get the internal field (the Rust Response struct)
     let internal_field = js_response_obj.get_internal_field(scope, 0).unwrap();
     let external_response = v8::Local::<v8::External>::try_from(internal_field).unwrap();
-    let incoming_message = unsafe { &mut *(external_response.value() as *mut IncomingMessage) };
+    let incoming_message_ptr = external_response.value() as *const Mutex<IncomingMessage>;
+    let incoming_message: Arc<Mutex<IncomingMessage>> = unsafe { Arc::from_raw(incoming_message_ptr) };
+    let incoming_message_clone = incoming_message.clone();
+    // println!("Got message pointer");
+    // let incoming_message_ref = unsafe { &*incoming_message_ptr };
+    // println!("Got message ref");
+    // let incoming_message = Arc::clone(incoming_message_ref);
+    // println!("Cloned incoming message");
+
+
 
     // Parse arguements 
     let event = args.get(0).to_rust_string_lossy(scope);
@@ -385,7 +408,8 @@ pub fn incoming_message_on_callback(
     let global_callback = v8::Global::new(scope, callback);
 
     // Register the callback with the event emitter
-    incoming_message.event_emitter.on(event, global_callback);
+    let mut incoming_message_gaurd = incoming_message.lock().unwrap();
+    incoming_message_gaurd.event_emitter.on(event, global_callback);
 
     rv.set(v8::undefined(scope).into())
 }

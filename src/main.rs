@@ -28,7 +28,7 @@ use crate::http::initialize_http;
 use crate::http::incoming_message_on_callback;
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -44,7 +44,7 @@ async fn main() {
     let global = context.global(scope);
 
     //READ FILE
-    let filepath: &str = "src/testing/06.js"; 
+    let filepath: &str = "src/testing/07.js"; 
     let file_contents = match helper::read_file(filepath){
         Ok(contents) => contents, 
         Err (e) => {
@@ -134,9 +134,10 @@ async fn main() {
                                     callback.call(scope, undefined, &args).unwrap();
                                 }
 
-                                interface::HttpOperation::Get(res, callback) => {
+                                interface::HttpOperation::Get(res, callback, tx) => {
                                     //Create IncomingMessage (V8) Object
-                                    let mut incoming_message = res.lock().await;
+                                    println!("EVENT LOOP: Inside Get Operation");
+                                    //let mut incoming_message = res.lock().unwrap();
 
                                     let object_template = v8::ObjectTemplate::new(scope);
                                     object_template.set_internal_field_count(1);
@@ -147,8 +148,7 @@ async fn main() {
                                     let on_fn_key = v8::String::new(scope, "on").unwrap();
                                     incoming_message_obj.set(scope, on_fn_key.into(), on_fn.into());
 
-                                    let boxed_incoming_message = Box::new(incoming_message);
-                                    let external_incoming_message = v8::External::new(scope, Box::into_raw(boxed_incoming_message) as *const _ as *mut c_void);
+                                    let external_incoming_message = v8::External::new(scope, Arc::into_raw(res) as *const _ as *mut c_void);
                                     incoming_message_obj.set_internal_field(0, external_incoming_message.into());
 
                                     let incoming_message_value: v8::Local<v8::Value> = incoming_message_obj.into();
@@ -158,6 +158,7 @@ async fn main() {
                                     let callback = callback.open(scope);
                                     callback.call(scope, undefined, &args).unwrap();
 
+                                    tx.send(true);
                                 }
 
                                 interface::HttpOperation::Request(mut socket, callback) => {
@@ -192,7 +193,7 @@ async fn main() {
                             match response_op {
                                 interface::ResponseEvent::Data{ res, chunk } => {
                                     println!("Reached data response event channel");
-                                    let mut incoming_message = res.lock().await;
+                                    let mut incoming_message = res.lock().unwrap();
                                     let chunk_str = String::from_utf8_lossy(&chunk);
                                     let chunk_value = v8::String::new(scope, &chunk_str).unwrap().into();
                                     incoming_message.event_emitter.emit(scope, "data", &[chunk_value])
@@ -200,13 +201,13 @@ async fn main() {
 
                                 interface::ResponseEvent::End{ res } => {
                                     println!("Reached end response event channel");
-                                    let mut incoming_message = res.lock().await;
+                                    let mut incoming_message = res.lock().unwrap();
                                     incoming_message.event_emitter.emit(scope, "end", &[])
                                 },
 
                                 interface::ResponseEvent::Error{ res, error_message } => {
                                     println!("Reached error response event channel");
-                                    let mut incoming_message = res.lock().await;
+                                    let mut incoming_message = res.lock().unwrap();
                                     let error_value = v8::String::new(scope, &error_message).unwrap();
                                     incoming_message.event_emitter.emit(scope, "error", &[error_value.into()])
                                 },

@@ -220,7 +220,6 @@ pub fn request_end_callback(
     tokio::task::spawn_local(async move {
         let socket = unsafe { &mut *socket_ptr };
         let request = unsafe { &mut *request_ptr };
-        //This might not work here
         let callback = unsafe { &*callback_ptr };
         request.end(socket, Some(final_chunk), callback.clone()).await;
 

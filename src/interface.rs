@@ -3,7 +3,8 @@ use tokio;
 
 use crate::http::IncomingMessage;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::oneshot; 
+use std::sync::Mutex;
 use crate::request::Request;
 
 pub enum Operations {
@@ -42,7 +43,7 @@ pub enum FsOperation {
 }
 
 pub enum HttpOperation {
-    Get(Arc<Mutex<IncomingMessage>>, v8::Global<v8::Function>),
+    Get(Arc<Mutex<IncomingMessage>>, v8::Global<v8::Function>, oneshot::Sender<bool>),
     Request(tokio::net::TcpStream, v8::Global<v8::Function>),
     Listen(Request, tokio::net::TcpStream, v8::Global<v8::Function>)
 }
